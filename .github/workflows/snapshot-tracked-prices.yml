@@ -1,0 +1,64 @@
+# Pings the deployed gateway every 6 hours to snapshot prices for every
+# product that has at least one active price alert. Pairs with the
+# on-read snapshotting in APIGateway/app.js to close the coverage gap
+# for products buyers track but don't actively view.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   GATEWAY_URL           — base URL of the deployed gateway, e.g.
+#                           https://trendy-treasures-gateway.onrender.com
+#                           (no trailing slash)
+#   INTERNAL_AUTH_SECRET  — must match the gateway's INTERNAL_AUTH_SECRET
+#
+# Cadence: every 6 hours by default. Aligns with the gateway's
+# SNAPSHOT_STALE_MS=21600000 — a more frequent cron would just be no-ops
+# for products that were also viewed in the same window. Adjust both env
+# values together if you change the cadence.
+
+name: Snapshot tracked product prices
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  # Allows manual triggering from the Actions tab for testing.
+  workflow_dispatch:
+
+jobs:
+  ping-snapshot-endpoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate required secrets
+        env:
+          GATEWAY_URL: ${{ secrets.GATEWAY_URL }}
+          INTERNAL_AUTH_SECRET: ${{ secrets.INTERNAL_AUTH_SECRET }}
+        run: |
+          if [ -z "$GATEWAY_URL" ]; then
+            echo "::error::GATEWAY_URL secret is not set. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "$INTERNAL_AUTH_SECRET" ]; then
+            echo "::error::INTERNAL_AUTH_SECRET secret is not set. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - name: Trigger snapshot sweep
+        env:
+          GATEWAY_URL: ${{ secrets.GATEWAY_URL }}
+          INTERNAL_AUTH_SECRET: ${{ secrets.INTERNAL_AUTH_SECRET }}
+        run: |
+          # --fail-with-body so curl exits non-zero on HTTP >=400 and
+          # still prints the response, making job logs useful for
+          # debugging auth or DB issues.
+          response=$(curl --fail-with-body --silent --show-error \
+            --max-time 300 \
+            -X POST \
+            -H "x-internal-auth: $INTERNAL_AUTH_SECRET" \
+            -H "x-request-id: gh-actions-$(date +%s)" \
+            "$GATEWAY_URL/internal/snapshot-tracked")
+          echo "Response: $response"
+          # Cheap parse-check so a 200 with { success: false } still
+          # fails the job — prevents silent regressions.
+          echo "$response" | grep -q '"success":true' || {
+            echo "::error::Gateway returned success=false"
+            exit 1
+          }

@@ -1,0 +1,35 @@
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { apiFetch } from '../utils';
+
+function GoogleAuthCallback() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    async function fetchGoogleAuth() {
+      try {
+        const response = await apiFetch('/authenticate');
+        if (response.ok) navigate('/home');
+        else navigate('/login');
+      } catch (error) {
+        console.error('Error handling callback:', error);
+        navigate('/login');
+      }
+    }
+    fetchGoogleAuth();
+  }, [navigate]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="card p-10 max-w-md w-full text-center animate-fade-in">
+        <div className="w-12 h-12 mx-auto rounded-full border-4 border-brand-200 border-t-brand-600 animate-spin" />
+        <h2 className="mt-5 text-xl font-bold text-ink-900">Signing you in…</h2>
+        <p className="text-sm text-ink-500 mt-2">
+          Just a moment while we finish authenticating with Google.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export default GoogleAuthCallback;

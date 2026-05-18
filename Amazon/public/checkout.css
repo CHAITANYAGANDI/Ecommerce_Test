@@ -1,0 +1,364 @@
+:root {
+    --amz-orange: #FF9900;
+    --amz-orange-hover: #E88B00;
+    --amz-navy: #131921;
+    --amz-navy-light: #232F3E;
+    --amz-bg: #EAEDED;
+    --amz-card: #FFFFFF;
+    --amz-text: #0F1111;
+    --amz-text-muted: #565959;
+    --amz-link: #007185;
+    --amz-border: #D5D9D9;
+    --amz-success: #007600;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: "Amazon Ember", Arial, sans-serif;
+    background: var(--amz-bg);
+    color: var(--amz-text);
+}
+
+.amz-header {
+    background: var(--amz-navy);
+    color: #fff;
+    padding: 12px 0;
+    border-bottom: 4px solid var(--amz-orange);
+}
+
+.amz-header-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.amz-logo {
+    color: #fff;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+
+.amz-logo-text { color: #fff; }
+.amz-logo-dot { color: var(--amz-orange); }
+.amz-logo-tld { color: #fff; font-size: 16px; }
+
+.amz-secure {
+    color: var(--amz-orange);
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.amz-main {
+    max-width: 1100px;
+    margin: 24px auto;
+    padding: 0 20px;
+}
+
+.amz-page-title {
+    font-size: 28px;
+    margin: 0 0 16px 0;
+    color: var(--amz-text);
+    border-bottom: 1px solid var(--amz-border);
+    padding-bottom: 12px;
+}
+
+.amz-loading,
+.amz-error {
+    background: var(--amz-card);
+    padding: 32px;
+    border-radius: 8px;
+    text-align: center;
+    color: var(--amz-text-muted);
+    font-size: 16px;
+}
+
+.amz-error {
+    color: #B12704;
+    border-left: 4px solid #B12704;
+    text-align: left;
+}
+
+.amz-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 24px;
+    align-items: start;
+}
+
+.amz-form-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.amz-section {
+    background: var(--amz-card);
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.amz-section-title {
+    font-size: 18px;
+    margin: 0 0 14px 0;
+    color: var(--amz-link);
+    font-weight: 700;
+}
+
+.amz-field-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.amz-field-row:last-child { margin-bottom: 0; }
+
+.amz-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+}
+
+.amz-field-wide { flex-basis: 100%; }
+
+.amz-field span {
+    color: var(--amz-text);
+    font-weight: 600;
+}
+
+.amz-field small {
+    color: var(--amz-text-muted);
+    font-weight: 400;
+}
+
+.amz-field input {
+    padding: 8px 10px;
+    font-size: 14px;
+    border: 1px solid #888C8C;
+    border-radius: 4px;
+    background: #fff;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.amz-field input:focus {
+    outline: none;
+    border-color: #E77600;
+    box-shadow: 0 0 0 3px rgba(228,121,17,0.5);
+}
+
+.amz-payment-strip {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.amz-card-icon {
+    background: linear-gradient(135deg, #1a1f71, #4b58a6);
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 3px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    font-size: 11px;
+}
+
+.amz-card-icon-mc { background: linear-gradient(135deg, #EB001B, #F79E1B); }
+.amz-card-icon-amex { background: linear-gradient(135deg, #006FCF, #0099DF); }
+
+.amz-stripe-tag {
+    margin-left: auto;
+    color: var(--amz-text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+
+.amz-stripe-element {
+    padding: 11px 12px;
+    border: 1px solid #888C8C;
+    border-radius: 4px;
+    background: #fff;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.amz-stripe-element.StripeElement--focus {
+    border-color: #E77600;
+    box-shadow: 0 0 0 3px rgba(228,121,17,0.5);
+}
+
+.amz-stripe-element.StripeElement--invalid {
+    border-color: #B12704;
+}
+
+.amz-card-error {
+    color: #B12704;
+    font-size: 13px;
+    margin: 4px 0 0 0;
+    padding: 6px 10px;
+    background: #FFF5F5;
+    border-left: 3px solid #B12704;
+    border-radius: 3px;
+}
+
+.amz-payment-note {
+    margin: 12px 0 0 0;
+    font-size: 12px;
+    color: var(--amz-text-muted);
+    background: #FFF8E1;
+    padding: 8px 10px;
+    border-radius: 4px;
+    border-left: 3px solid var(--amz-orange);
+}
+
+.amz-items {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.amz-item {
+    display: grid;
+    grid-template-columns: 80px 1fr auto;
+    gap: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--amz-border);
+    align-items: center;
+}
+
+.amz-item:last-child { border-bottom: none; padding-bottom: 0; }
+
+.amz-item-img {
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
+    background: #fff;
+    border: 1px solid var(--amz-border);
+    border-radius: 4px;
+}
+
+.amz-item-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--amz-link);
+    margin: 0 0 4px 0;
+}
+
+.amz-item-meta {
+    font-size: 13px;
+    color: var(--amz-text-muted);
+    margin: 2px 0;
+}
+
+.amz-item-price {
+    font-size: 17px;
+    font-weight: 700;
+    color: #B12704;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.amz-summary {
+    background: var(--amz-card);
+    padding: 20px;
+    border-radius: 8px;
+    align-self: start;
+    position: sticky;
+    top: 20px;
+}
+
+.amz-btn-buy {
+    width: 100%;
+    background: linear-gradient(180deg, #F7DFA5 0%, var(--amz-orange) 50%, #B07700 100%);
+    color: #111;
+    border: 1px solid #A88734;
+    border-radius: 20px;
+    padding: 11px 16px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 5px 0 rgba(213,217,217,.5);
+}
+
+.amz-btn-buy:hover {
+    background: linear-gradient(180deg, #F5D78E 0%, var(--amz-orange-hover) 50%, #9F6800 100%);
+}
+
+.amz-btn-buy:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.amz-summary-note {
+    font-size: 12px;
+    color: var(--amz-text-muted);
+    margin: 12px 0;
+    text-align: center;
+}
+
+.amz-summary-rows {
+    margin: 16px 0 0 0;
+    padding-top: 16px;
+    border-top: 1px solid var(--amz-border);
+}
+
+.amz-summary-rows div {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 14px;
+}
+
+.amz-summary-rows dt,
+.amz-summary-rows dd {
+    margin: 0;
+}
+
+.amz-summary-rows dt { color: var(--amz-text); }
+
+.amz-summary-total {
+    font-size: 18px !important;
+    font-weight: 700;
+    color: #B12704;
+    margin-top: 12px !important;
+    padding-top: 12px;
+    border-top: 1px solid var(--amz-border);
+}
+
+.amz-footer {
+    text-align: center;
+    color: #ccc;
+    font-size: 12px;
+    padding: 24px;
+    margin-top: 40px;
+    background: var(--amz-navy-light);
+}
+
+.amz-link {
+    color: var(--amz-link);
+    text-decoration: none;
+}
+
+.amz-link:hover {
+    color: #C7511F;
+    text-decoration: underline;
+}
+
+@media (max-width: 800px) {
+    .amz-form-grid {
+        grid-template-columns: 1fr;
+    }
+    .amz-summary {
+        position: static;
+    }
+}

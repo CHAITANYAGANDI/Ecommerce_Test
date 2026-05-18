@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amazon — Checkout</title>
+    <link rel="stylesheet" href="/static/checkout.css">
+</head>
+<body>
+    <header class="amz-header">
+        <div class="amz-header-inner">
+            <span class="amz-logo">
+                <span class="amz-logo-text">amazon</span><span class="amz-logo-dot">.</span><span class="amz-logo-tld">com</span>
+            </span>
+            <span class="amz-secure">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2 L4 6 V12 C4 17 8 21 12 22 C16 21 20 17 20 12 V6 Z"/>
+                </svg>
+                Secure checkout
+            </span>
+        </div>
+    </header>
+
+    <main class="amz-main">
+        <h1 class="amz-page-title">Checkout</h1>
+
+        <div id="amz-loading" class="amz-loading">Loading your order…</div>
+        <div id="amz-error" class="amz-error" hidden></div>
+
+        <form id="amz-form" class="amz-form" hidden>
+            <div class="amz-form-grid">
+                <div class="amz-form-cards">
+                    <section class="amz-section">
+                        <h2 class="amz-section-title">1. Your contact information</h2>
+                        <div class="amz-field-row">
+                            <label class="amz-field">
+                                <span>Full name</span>
+                                <input type="text" name="customerName" required autocomplete="name">
+                            </label>
+                            <label class="amz-field">
+                                <span>Email</span>
+                                <input type="email" name="customerEmail" required autocomplete="email">
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="amz-section">
+                        <h2 class="amz-section-title">2. Shipping address</h2>
+                        <div class="amz-field-row">
+                            <label class="amz-field amz-field-wide">
+                                <span>Address line 1</span>
+                                <input type="text" name="addressLine1" required autocomplete="address-line1">
+                            </label>
+                        </div>
+                        <div class="amz-field-row">
+                            <label class="amz-field amz-field-wide">
+                                <span>Address line 2 <small>(optional)</small></span>
+                                <input type="text" name="addressLine2" autocomplete="address-line2">
+                            </label>
+                        </div>
+                        <div class="amz-field-row">
+                            <label class="amz-field">
+                                <span>City</span>
+                                <input type="text" name="city" required autocomplete="address-level2">
+                            </label>
+                            <label class="amz-field">
+                                <span>State</span>
+                                <input type="text" name="state" required autocomplete="address-level1">
+                            </label>
+                            <label class="amz-field">
+                                <span>ZIP</span>
+                                <input type="text" name="postalCode" required autocomplete="postal-code">
+                            </label>
+                        </div>
+                        <div class="amz-field-row">
+                            <label class="amz-field">
+                                <span>Country</span>
+                                <input type="text" name="country" value="USA" required autocomplete="country-name">
+                            </label>
+                            <label class="amz-field">
+                                <span>Phone <small>(optional)</small></span>
+                                <input type="tel" name="phone" autocomplete="tel">
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="amz-section">
+                        <h2 class="amz-section-title">3. Payment method</h2>
+                        <div class="amz-payment-strip">
+                            <span class="amz-card-icon">VISA</span>
+                            <span class="amz-card-icon amz-card-icon-mc">MC</span>
+                            <span class="amz-card-icon amz-card-icon-amex">AMEX</span>
+                            <span class="amz-stripe-tag">Powered by Stripe</span>
+                        </div>
+                        <div class="amz-field-row">
+                            <label class="amz-field amz-field-wide">
+                                <span>Card details</span>
+                                <div id="amz-card-element" class="amz-stripe-element"></div>
+                            </label>
+                        </div>
+                        <div id="amz-card-error" class="amz-card-error" role="alert" hidden></div>
+                        <p class="amz-payment-note">
+                            <strong>Test mode.</strong> Use card <code>4242 4242 4242 4242</code>, any future expiry, any 3-digit CVV, any ZIP. Stripe will charge a real test PaymentIntent — no real money moves.
+                        </p>
+                    </section>
+
+                    <section class="amz-section">
+                        <h2 class="amz-section-title">4. Review items</h2>
+                        <div id="amz-items" class="amz-items"></div>
+                    </section>
+                </div>
+
+                <aside class="amz-summary">
+                    <button id="amz-place" class="amz-btn-buy" type="submit">Place your order</button>
+                    <p class="amz-summary-note">By placing your order, you agree to Amazon's simulated terms.</p>
+                    <dl class="amz-summary-rows">
+                        <div><dt>Items:</dt><dd id="amz-subtotal">$0.00</dd></div>
+                        <div><dt>Shipping:</dt><dd>FREE</dd></div>
+                        <div><dt>Estimated tax:</dt><dd>$0.00</dd></div>
+                        <div class="amz-summary-total"><dt>Order total:</dt><dd id="amz-total">$0.00</dd></div>
+                    </dl>
+                </aside>
+            </div>
+        </form>
+    </main>
+
+    <footer class="amz-footer">
+        <p>© Demo Amazon storefront · TrendyTreasures aggregator simulation</p>
+    </footer>
+
+    <script src="https://js.stripe.com/v3/"></script>
+    <script src="/config.js"></script>
+    <script src="/static/checkout.js"></script>
+</body>
+</html>

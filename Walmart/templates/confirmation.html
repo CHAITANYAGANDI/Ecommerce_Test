@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walmart — Order placed</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='checkout.css') }}">
+    <style>
+        .wm-conf-card {
+            background: var(--wm-card);
+            border-radius: var(--wm-radius);
+            padding: 40px;
+            margin-top: 24px;
+            border: 1px solid var(--wm-border);
+            border-top: 6px solid var(--wm-yellow);
+            text-align: left;
+        }
+        .wm-conf-icon {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--wm-blue);
+            margin-bottom: 12px;
+        }
+        .wm-conf-icon-circle {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: var(--wm-blue);
+            color: var(--wm-yellow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .wm-conf-meta {
+            font-size: 14px;
+            color: var(--wm-text-muted);
+            margin: 8px 0;
+        }
+        .wm-conf-cta {
+            display: inline-block;
+            background: var(--wm-blue);
+            color: #fff;
+            border-radius: 999px;
+            padding: 12px 24px;
+            font-weight: 700;
+            text-decoration: none;
+            margin-top: 24px;
+        }
+        .wm-conf-cta:hover {
+            background: var(--wm-blue-dark);
+        }
+    </style>
+</head>
+<body>
+    <header class="wm-header">
+        <div class="wm-header-inner">
+            <span class="wm-logo">
+                <span class="wm-logo-spark">✸</span>
+                <span class="wm-logo-text">Walmart</span>
+            </span>
+            <div class="wm-header-tag">Order placed</div>
+        </div>
+        <div class="wm-progress">
+            <div class="wm-progress-step wm-progress-done">Cart</div>
+            <div class="wm-progress-arrow">›</div>
+            <div class="wm-progress-step wm-progress-done">Review</div>
+            <div class="wm-progress-arrow">›</div>
+            <div class="wm-progress-step wm-progress-active">Confirm</div>
+        </div>
+    </header>
+
+    <main class="wm-main" style="max-width: 720px;">
+        <h1 class="wm-page-title">Thanks for your order!</h1>
+
+        <div class="wm-conf-card">
+            <div class="wm-conf-icon">
+                <span class="wm-conf-icon-circle">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <path d="M5 12l5 5L20 7"/>
+                    </svg>
+                </span>
+                Order placed
+            </div>
+            <p class="wm-conf-meta">A confirmation will be sent to your email (in this simulation, it isn't actually sent).</p>
+            <p class="wm-conf-meta" id="wm-conf-summary"></p>
+            <p class="wm-conf-meta">Track this order in your TrendyTreasures account.</p>
+            <a class="wm-conf-cta" id="wm-back-link" href="http://localhost:3001/home">Back to TrendyTreasures</a>
+        </div>
+    </main>
+
+    <footer class="wm-footer">
+        <p>© Demo Walmart storefront · TrendyTreasures aggregator simulation</p>
+    </footer>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const total = params.get('total');
+        const itemCount = params.get('items');
+        const orderId = params.get('orderId');
+        const summary = document.getElementById('wm-conf-summary');
+        const lines = [];
+        if (orderId) lines.push(`Order #${orderId}`);
+        if (total && itemCount) lines.push(`${itemCount} item${itemCount === '1' ? '' : 's'} · Total: $${total}`);
+        summary.textContent = lines.join(' · ');
+        const back = document.getElementById('wm-back-link');
+        if (window.TRENDY_TREASURES_URL) {
+            back.href = window.TRENDY_TREASURES_URL + '/home';
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amazon — Order placed</title>
+    <link rel="stylesheet" href="/static/checkout.css">
+    <style>
+        .amz-conf-card {
+            background: var(--amz-card);
+            border-radius: 8px;
+            padding: 40px;
+            margin-top: 24px;
+            border-top: 5px solid var(--amz-success);
+        }
+        .amz-conf-icon {
+            color: var(--amz-success);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+        .amz-conf-meta {
+            font-size: 14px;
+            color: var(--amz-text-muted);
+            margin: 8px 0;
+        }
+        .amz-conf-cta {
+            display: inline-block;
+            background: linear-gradient(180deg, #F7DFA5 0%, var(--amz-orange) 50%, #B07700 100%);
+            color: #111;
+            border: 1px solid #A88734;
+            border-radius: 20px;
+            padding: 10px 20px;
+            font-weight: 600;
+            text-decoration: none;
+            margin-top: 24px;
+        }
+        .amz-conf-cta:hover {
+            background: linear-gradient(180deg, #F5D78E 0%, var(--amz-orange-hover) 50%, #9F6800 100%);
+        }
+    </style>
+</head>
+<body>
+    <header class="amz-header">
+        <div class="amz-header-inner">
+            <span class="amz-logo">
+                <span class="amz-logo-text">amazon</span><span class="amz-logo-dot">.</span><span class="amz-logo-tld">com</span>
+            </span>
+            <span class="amz-secure">Order confirmed</span>
+        </div>
+    </header>
+
+    <main class="amz-main" style="grid-template-columns: 1fr; max-width: 700px;">
+        <h1 class="amz-page-title">Thanks, your order has been placed.</h1>
+
+        <div class="amz-conf-card">
+            <div class="amz-conf-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M9 12l2 2 4-4"/>
+                </svg>
+                Order placed
+            </div>
+            <p class="amz-conf-meta">A confirmation email is on its way (in this simulation, it isn't actually sent).</p>
+            <p class="amz-conf-meta" id="amz-conf-summary"></p>
+            <p class="amz-conf-meta">You can track this order in your TrendyTreasures account.</p>
+            <a class="amz-conf-cta" id="amz-back-link" href="http://localhost:3001/home">Back to TrendyTreasures</a>
+        </div>
+    </main>
+
+    <footer class="amz-footer">
+        <p>© Demo Amazon storefront · TrendyTreasures aggregator simulation</p>
+    </footer>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const total = params.get('total');
+        const itemCount = params.get('items');
+        const orderId = params.get('orderId');
+        const summary = document.getElementById('amz-conf-summary');
+        const lines = [];
+        if (orderId) lines.push(`Order #${orderId}`);
+        if (total && itemCount) lines.push(`${itemCount} item${itemCount === '1' ? '' : 's'} · Total: $${total}`);
+        summary.textContent = lines.join(' · ');
+        const back = document.getElementById('amz-back-link');
+        if (window.TRENDY_TREASURES_URL) {
+            back.href = window.TRENDY_TREASURES_URL + '/home';
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walmart — Checkout</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='checkout.css') }}">
+</head>
+<body>
+    <header class="wm-header">
+        <div class="wm-header-inner">
+            <span class="wm-logo">
+                <span class="wm-logo-spark">✸</span>
+                <span class="wm-logo-text">Walmart</span>
+            </span>
+            <div class="wm-header-tag">Save Money. Live Better.</div>
+        </div>
+        <div class="wm-progress">
+            <div class="wm-progress-step wm-progress-done">Cart</div>
+            <div class="wm-progress-arrow">›</div>
+            <div class="wm-progress-step wm-progress-active">Checkout</div>
+            <div class="wm-progress-arrow">›</div>
+            <div class="wm-progress-step">Confirm</div>
+        </div>
+    </header>
+
+    <main class="wm-main">
+        <h1 class="wm-page-title">Checkout</h1>
+
+        <div id="wm-loading" class="wm-loading">Loading your order…</div>
+        <div id="wm-error" class="wm-error" hidden></div>
+
+        <form id="wm-form" class="wm-form" hidden>
+            <div class="wm-grid">
+                <div class="wm-cards">
+                    <section class="wm-card">
+                        <h2 class="wm-card-title">Contact information</h2>
+                        <div class="wm-field-row">
+                            <label class="wm-field">
+                                <span>Full name</span>
+                                <input type="text" name="customerName" required autocomplete="name">
+                            </label>
+                            <label class="wm-field">
+                                <span>Email</span>
+                                <input type="email" name="customerEmail" required autocomplete="email">
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="wm-card">
+                        <h2 class="wm-card-title">Shipping address</h2>
+                        <div class="wm-field-row">
+                            <label class="wm-field wm-field-wide">
+                                <span>Street address</span>
+                                <input type="text" name="addressLine1" required autocomplete="address-line1">
+                            </label>
+                        </div>
+                        <div class="wm-field-row">
+                            <label class="wm-field wm-field-wide">
+                                <span>Apartment, suite, etc. <small>(optional)</small></span>
+                                <input type="text" name="addressLine2" autocomplete="address-line2">
+                            </label>
+                        </div>
+                        <div class="wm-field-row">
+                            <label class="wm-field">
+                                <span>City</span>
+                                <input type="text" name="city" required autocomplete="address-level2">
+                            </label>
+                            <label class="wm-field">
+                                <span>State</span>
+                                <input type="text" name="state" required autocomplete="address-level1">
+                            </label>
+                            <label class="wm-field">
+                                <span>ZIP</span>
+                                <input type="text" name="postalCode" required autocomplete="postal-code">
+                            </label>
+                        </div>
+                        <div class="wm-field-row">
+                            <label class="wm-field">
+                                <span>Country</span>
+                                <input type="text" name="country" value="USA" required autocomplete="country-name">
+                            </label>
+                            <label class="wm-field">
+                                <span>Phone <small>(optional)</small></span>
+                                <input type="tel" name="phone" autocomplete="tel">
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="wm-card">
+                        <h2 class="wm-card-title">Payment</h2>
+                        <div class="wm-payment-strip">
+                            <span class="wm-card-tag">Walmart Pay</span>
+                            <span class="wm-payment-strip-meta">Visa · Mastercard · Amex · Discover</span>
+                            <span class="wm-stripe-tag">Powered by Stripe</span>
+                        </div>
+                        <div class="wm-field-row">
+                            <label class="wm-field wm-field-wide">
+                                <span>Card details</span>
+                                <div id="wm-card-element" class="wm-stripe-element"></div>
+                            </label>
+                        </div>
+                        <div id="wm-card-error" class="wm-card-error" role="alert" hidden></div>
+                        <p class="wm-payment-note">
+                            <strong>Test mode.</strong> Use card <code>4242 4242 4242 4242</code>, any future expiry, any 3-digit CVV, any ZIP. Stripe charges a real test PaymentIntent — no real money moves.
+                        </p>
+                    </section>
+
+                    <section class="wm-card">
+                        <h2 class="wm-card-title">Items in this order</h2>
+                        <div id="wm-items" class="wm-items"></div>
+                    </section>
+                </div>
+
+                <aside class="wm-summary-card">
+                    <h2 class="wm-summary-title">Order summary</h2>
+                    <dl class="wm-summary-rows">
+                        <div><dt>Subtotal</dt><dd id="wm-subtotal">$0.00</dd></div>
+                        <div><dt>Shipping</dt><dd class="wm-free">FREE</dd></div>
+                        <div><dt>Estimated tax</dt><dd>$0.00</dd></div>
+                        <div class="wm-summary-total"><dt>Total</dt><dd id="wm-total">$0.00</dd></div>
+                    </dl>
+                    <button id="wm-place" class="wm-btn-primary" type="submit">Place order</button>
+                    <p class="wm-summary-note">Simulated checkout · Powered by TrendyTreasures aggregator</p>
+                </aside>
+            </div>
+        </form>
+    </main>
+
+    <footer class="wm-footer">
+        <p>© Demo Walmart storefront · TrendyTreasures aggregator simulation</p>
+    </footer>
+
+    <script src="https://js.stripe.com/v3/"></script>
+    <script src="/config.js"></script>
+    <script src="{{ url_for('static', filename='checkout.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+# Local-dev orchestration. Brings up MongoDB + all 5 backend services.
+# React apps (client/, Auth/client/) are NOT included — run them with `npm start`
+# from those directories so HMR works.
+#
+# Usage:
+#   docker compose up --build       # first time / after code changes
+#   docker compose up               # re-use cached builds
+#   docker compose down             # stop and remove containers
+#   docker compose down -v          # also remove the mongodata volume
+
+services:
+
+  mongo:
+    image: mongo:7
+    container_name: ec-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  users:
+    build: ./Users
+    container_name: ec-users
+    restart: unless-stopped
+    ports:
+      - "7001:7001"
+    env_file:
+      - ./Users/.env
+    environment:
+      MONGO_CONN: mongodb://mongo:27017/ecommerce
+      AUTH_SERVER_URL: http://authserver:5000
+      API_GATEWAY_URL: http://gateway:7000
+      CORS_ORIGINS: http://localhost:3001,http://localhost:3002,http://localhost:8000,http://localhost:8001,http://127.0.0.1:8001
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  authserver:
+    build: ./Auth/server
+    container_name: ec-authserver
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./Auth/server/.env
+    environment:
+      NODE_ENV: development
+      # Auth/server uses its OWN database (`auth`), not the shared `ecommerce` one.
+      MONGO_CONN: mongodb://mongo:27017/auth
+      CORS_ORIGINS: http://localhost:3001,http://localhost:3002,http://localhost:5000
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  amazon:
+    build: ./Amazon
+    container_name: ec-amazon
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./Amazon/.env
+    environment:
+      # Amazon uses its OWN database (`amazon`), not the shared `ecommerce` one.
+      MONGO_CONN: mongodb://mongo:27017/amazon
+      AUTH_SERVER_URL: http://authserver:5000
+      TT_GATEWAY_URL: http://gateway:7000
+      CORS_ORIGINS: http://localhost:3001,http://localhost:8000
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  walmart:
+    build: ./Walmart
+    container_name: ec-walmart
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./Walmart/.env
+    environment:
+      # Walmart uses its OWN database (`walmart`), not the shared `ecommerce` one.
+      MONGO_CONN: mongodb://mongo:27017/walmart
+      AUTH_SERVER_URL: http://authserver:5000
+      TT_GATEWAY_URL: http://gateway:7000
+      CORS_ORIGINS: http://localhost:3001,http://localhost:8001,http://127.0.0.1:8001
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  gateway:
+    build: ./APIGateway
+    container_name: ec-gateway
+    restart: unless-stopped
+    ports:
+      - "7000:7000"
+    env_file:
+      - ./APIGateway/.env
+    environment:
+      MONGO_CONN: mongodb://mongo:27017/ecommerce
+      USERS_SERVICE_URL: http://users:7001
+      AMAZON_SERVICE_URL: http://amazon:8000
+      WALMART_SERVICE_URL: http://walmart:8001
+      AUTH_SERVER_URL: http://authserver:5000
+      CORS_ORIGINS: http://localhost:3001,http://localhost:3002,http://localhost:8000,http://localhost:8001,http://127.0.0.1:8001
+    depends_on:
+      mongo:
+        condition: service_healthy
+      users:
+        condition: service_started
+      authserver:
+        condition: service_started
+      amazon:
+        condition: service_started
+      walmart:
+        condition: service_started
+
+volumes:
+  mongodata:

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in · AuthShield</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,1,0"
+        rel="stylesheet">
+    <style>
+        :root {
+            --accent: #426fe7;
+            --accent-dark: #2f54c4;
+            --ink: #0b1c30;
+            --ink-mute: #5f5e5e;
+            --bg: #f8f9ff;
+            --field-bg: #f8f9ff;
+            --border: #dce9ff;
+            --border-soft: #e5eeff;
+            --danger: #b91c1c;
+            --danger-bg: rgba(239, 68, 68, 0.1);
+            --danger-border: rgba(239, 68, 68, 0.3);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body { min-height: 100vh; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--ink);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            min-height: 100vh;
+        }
+
+        .auth-shell { width: 100%; max-width: 28rem; }
+
+        /* Brand header */
+        .auth-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 32px;
+        }
+        .auth-brand .material-symbols-outlined {
+            color: var(--accent);
+            font-size: 48px;
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .auth-brand-name {
+            font-weight: 700;
+            font-size: 32px;
+            letter-spacing: -0.02em;
+            color: var(--ink);
+        }
+
+        /* Card */
+        .auth-card {
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+            border: 1px solid var(--border-soft);
+            border-bottom: 2px solid var(--accent);
+            padding: 40px;
+        }
+        @media (max-width: 480px) {
+            .auth-card { padding: 28px; }
+        }
+
+        .auth-card-head {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .auth-card-title {
+            font-weight: 700;
+            font-size: 28px;
+            color: var(--ink);
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+        .auth-card-sub {
+            font-size: 14px;
+            color: var(--ink-mute);
+        }
+
+        /* Error banner */
+        .auth-error {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: 1px solid var(--danger-border);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .auth-error .material-symbols-outlined {
+            font-size: 18px;
+            margin-top: 1px;
+        }
+
+        /* Form */
+        .auth-form { display: flex; flex-direction: column; gap: 20px; }
+
+        .auth-field-label {
+            display: block;
+            font-weight: 500;
+            font-size: 14px;
+            color: var(--ink);
+            margin-bottom: 6px;
+        }
+
+        .auth-field-wrap { position: relative; }
+
+        .auth-field-icon-left,
+        .auth-field-icon-right {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--ink-mute);
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            pointer-events: none;
+        }
+        .auth-field-icon-left { left: 12px; }
+        .auth-field-icon-right {
+            right: 12px;
+            background: transparent;
+            border: 0;
+            cursor: pointer;
+            pointer-events: auto;
+            padding: 0;
+            transition: color 0.15s;
+        }
+        .auth-field-icon-right:hover { color: var(--ink); }
+
+        .auth-input {
+            display: block;
+            width: 100%;
+            padding: 11px 14px 11px 40px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--ink);
+            background: var(--field-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .auth-input--pwd { padding-right: 40px; }
+        .auth-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(66, 111, 231, 0.2);
+        }
+
+        .auth-forgot {
+            display: block;
+            text-align: right;
+            margin-top: 6px;
+        }
+        .auth-forgot a {
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 500;
+            text-decoration: none;
+        }
+        .auth-forgot a:hover { text-decoration: underline; }
+
+        /* Submit */
+        .auth-submit {
+            width: 100%;
+            padding: 14px 16px;
+            background: var(--accent);
+            color: #fff;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 17px;
+            border: 0;
+            border-radius: 6px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 8px;
+            transition: background 0.15s, transform 0.05s;
+        }
+        .auth-submit:hover { background: var(--accent-dark); }
+        .auth-submit:active { transform: translateY(1px); }
+        .auth-submit .material-symbols-outlined { font-size: 18px; }
+
+        /* Footer */
+        .auth-foot {
+            margin-top: 28px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            font-size: 14px;
+            color: var(--ink);
+        }
+        .auth-foot a {
+            color: var(--accent);
+            font-weight: 500;
+            text-decoration: none;
+        }
+        .auth-foot a:hover { text-decoration: underline; }
+
+        /* Subtle entrance animation */
+        @keyframes auth-in {
+            0% { opacity: 0; transform: translateY(8px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        .auth-card { animation: auth-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+    </style>
+</head>
+<body>
+    <% const isAuthorizeMode = typeof isAuthorizationFlow !== 'undefined' && isAuthorizationFlow; %>
+    <div class="auth-shell">
+
+        <div class="auth-brand">
+            <span class="material-symbols-outlined">shield</span>
+            <span class="auth-brand-name">AuthShield</span>
+        </div>
+
+        <div class="auth-card">
+            <div class="auth-card-head">
+                <h2 class="auth-card-title">Welcome</h2>
+                <p class="auth-card-sub">Log in to AuthShield to continue.</p>
+            </div>
+
+            <% if (typeof error !== 'undefined' && error) { %>
+                <div class="auth-error" role="alert">
+                    <span class="material-symbols-outlined">error</span>
+                    <span><%= error %></span>
+                </div>
+            <% } %>
+
+            <form action="/auth/client/login" method="post" class="auth-form">
+                <% if (typeof callbackUrl !== 'undefined' && callbackUrl) { %>
+                    <input type="hidden" name="callbackUrl" value="<%= callbackUrl %>">
+                <% } %>
+
+                <div>
+                    <label class="auth-field-label" for="username">Username</label>
+                    <div class="auth-field-wrap">
+                        <span class="auth-field-icon-left material-symbols-outlined">alternate_email</span>
+                        <input
+                            class="auth-input"
+                            type="text"
+                            id="username"
+                            name="username"
+                            placeholder="Enter your username"
+                            autocomplete="username"
+                            required
+                            autofocus
+                        >
+                    </div>
+                </div>
+
+                <div>
+                    <label class="auth-field-label" for="password">Password</label>
+                    <div class="auth-field-wrap">
+                        <span class="auth-field-icon-left material-symbols-outlined">lock</span>
+                        <input
+                            class="auth-input auth-input--pwd"
+                            type="password"
+                            id="password"
+                            name="password"
+                            placeholder="Enter your password"
+                            autocomplete="current-password"
+                            required
+                        >
+                        <button
+                            type="button"
+                            class="auth-field-icon-right material-symbols-outlined"
+                            id="pwd-toggle"
+                            aria-label="Show password"
+                        >visibility_off</button>
+                    </div>
+                </div>
+
+                <button type="submit" class="auth-submit">
+                    <%= isAuthorizeMode ? 'Authorize' : 'Log In' %>
+                    <span class="material-symbols-outlined">arrow_forward</span>
+                </button>
+            </form>
+
+            <% if (!isAuthorizeMode) { %>
+                <div class="auth-foot">
+                    <span>Don't have an account?</span>
+                    <a href="/auth/register">Sign up</a>
+                </div>
+            <% } %>
+        </div>
+
+    </div>
+
+    <script>
+        // Password visibility toggle — vanilla JS so we don't need a build step.
+        var toggle = document.getElementById('pwd-toggle');
+        var pwd = document.getElementById('password');
+        if (toggle && pwd) {
+            toggle.addEventListener('click', function () {
+                var hidden = pwd.type === 'password';
+                pwd.type = hidden ? 'text' : 'password';
+                toggle.textContent = hidden ? 'visibility' : 'visibility_off';
+                toggle.setAttribute('aria-label', hidden ? 'Hide password' : 'Show password');
+            });
+        }
+    </script>
+</body>
+</html>
