@@ -89,7 +89,7 @@ const ensureAuthenticated = async (req, res, next) => {
 
     try {
 
-        const decoded = jwt.verify(auth, process.env.PRODUCTS_SECRET);
+        const decoded = jwt.verify(auth, process.env.SECRET);
 
         req.products = decoded;
 
@@ -131,7 +131,7 @@ const ensureAuthenticated = async (req, res, next) => {
         }
         if (err.name === 'JsonWebTokenError') {
             return res.status(403).json({
-                message: 'Token signature verification failed. Check that PRODUCTS_SECRET matches the secret_key used to sign the token in Auth/server.',
+                message: 'Token signature verification failed. Check that SECRET matches the secret_key used to sign the token in Auth/server.',
                 detail: err.message
             });
         }

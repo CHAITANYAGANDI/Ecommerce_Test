@@ -432,7 +432,7 @@ Routes:
 
 ### 6.4 Amazon service (port 8000)
 
-Tiny CRUD service backed by the `Products` collection. All routes are gated by `Middlewares/Authorization.js`, which verifies the `productsauthorization` header as a JWT signed with `PRODUCTS_SECRET` and confirms the request URL contains the JWT's `api_url` claim (defense against token reuse across services).
+Tiny CRUD service backed by the `Products` collection. All routes are gated by `Middlewares/Authorization.js`, which verifies the `productsauthorization` header as a JWT signed with `SECRET` (Walmart reads the same env var under the same name) and confirms the request URL contains the JWT's `api_url` claim (defense against token reuse across services).
 
 Endpoints (under gateway `/api/amazon/products`):
 - `GET /get` — list all products
@@ -488,13 +488,13 @@ Every service ships a `.env.example`. Copy it to `.env` and fill in real values.
 | `APIGateway/` | `PORT`, `USERS_SERVICE_URL`, `AMAZON_SERVICE_URL`, `WALMART_SERVICE_URL`, `CORS_ORIGINS`, `MONGO_CONN` |
 | `Users/` | `PORT`, `NODE_ENV`, `MONGO_CONN`, `JWT_SECRET`, `CORS_ORIGINS`, `CLIENT_URL`, `AUTH_SERVER_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `MAIL_ADDRESS`, `MAIL_PASSWORD` |
 | `Auth/server/` | `PORT`, `NODE_ENV`, `MONGO_CONN`, `JWT_SECRET`, `CORS_ORIGINS` |
-| `Amazon/` | `PORT`, `MONGO_CONN`, `CORS_ORIGINS`, `PRODUCTS_SECRET` |
-| `Walmart/` | `PORT`, `MONGO_CONN`, `CORS_ORIGINS`, `INVENTORY_SECRET` |
+| `Amazon/` | `PORT`, `MONGO_CONN`, `CORS_ORIGINS`, `SECRET` |
+| `Walmart/` | `PORT`, `MONGO_CONN`, `CORS_ORIGINS`, `SECRET` |
 | `client/` | `REACT_APP_API_URL`, `REACT_APP_AUTH_URL`, `REACT_APP_CLIENT_URL` (build-time only) |
 | `Auth/client/` | `REACT_APP_AUTH_URL` (build-time only) |
 
 > **Cross-service constraints:**
-> - All product services (`Amazon`, `Walmart`) and `Auth/server` must share the same `PRODUCTS_SECRET` because Auth/server signs the JWT and the product services verify it. Wait — actually the JWT is signed with the credential's per-row `secret_key` (stored in `Auth/server/credentials`), so the `PRODUCTS_SECRET` env var is a leftover. The verifying middleware in `Amazon`/`Walmart` reads it but the `secret_key` flow makes per-credential secrets the source of truth. **Plan to consolidate this** before going live.
+> - All product services and `Auth/server` must share the same provider-token signing secret because Auth/server signs the JWT and the product services verify it. Concretely: `Auth/server`'s `JWT_PROVIDER_SECRET` must equal `SECRET` in both Amazon and Walmart (two services, same env var name, same value). The historical per-credential `secret_key` field on `Auth/server/credentials` is a leftover from an earlier design — the runtime verifying middleware in `Amazon`/`Walmart` uses the env-var secret, not `secret_key`. **Plan to consolidate this** before going live.
 > - `Users` and `APIGateway` must point at the same MongoDB DB so they see the same `creds` collection.
 
 ---
@@ -524,7 +524,7 @@ cd ..
 
 Copy each `.env.example` to `.env` in the same directory and fill in the values. For local dev the defaults work — you only need to set:
 - `MONGO_URI` / `MONGO_CONN` (your MongoDB connection string)
-- `JWT_SECRET`, `PRODUCTS_SECRET` (any long random string)
+- `JWT_SECRET`, `SECRET` (used by both Amazon and Walmart) — any long random string; `SECRET` must hold the same value as Auth's `JWT_PROVIDER_SECRET`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` (only if testing Google sign-in)
 - `MAIL_ADDRESS`, `MAIL_PASSWORD` (Gmail app password — only if testing OTP/recovery)
 
@@ -627,7 +627,7 @@ What's protected:
 - **Short access tokens (15 min) + refresh-token rotation**: stolen access tokens have at most a 15-minute window of usefulness; stolen refresh tokens are invalidated as soon as the legitimate user makes any request that triggers a refresh.
 
 What still needs work before production traffic:
-- **`PRODUCTS_SECRET` vs per-credential `secret_key`**: the verification path in `Amazon/Walmart` middleware uses `PRODUCTS_SECRET`, but `Auth/server/Controllers/ClientAuthorization.js` signs with `creds[0].secret_key`. These must agree. Either drop `PRODUCTS_SECRET` and have the product services look up the secret from MongoDB at verify time, or make `secret_key === PRODUCTS_SECRET` for every credential.
+- **`SECRET` vs per-credential `secret_key`**: the verification path in both Amazon and Walmart middleware uses `SECRET` (which must hold the same value as Auth's `JWT_PROVIDER_SECRET`), but `Auth/server/Controllers/ClientAuthorization.js` signs with `creds[0].secret_key`. These must agree. Either drop the env-var-based shared secret and have the product services look up the secret from MongoDB at verify time, or make `secret_key === SECRET` for every credential.
 - **No CSRF token** for state-changing cookie-authenticated requests. SameSite=None+Lax mitigates most attacks, but a double-submit cookie pattern would be a belt-and-suspenders improvement.
 - **Rate limiting** is only on `Auth/server`, not on `Users` (where the login lives). Add `express-rate-limit` to `Users/app.js` before going live.
 - **OTP** has no max-attempts counter — a 4-digit OTP is brute-forceable in seconds without one.

@@ -57,6 +57,20 @@ const registerLimiter = rateLimit({
     message: { success: false, message: 'Too many signups from this IP. Try again later.' }
 });
 
+// /register/verify — the verifySignupOtp middleware enforces a 5-attempt
+// counter on the OTP record itself, but that only stops brute-force against
+// a single live code. This IP-keyed limiter caps how many distinct verify
+// attempts a host can make per window, blunting credential-stuffing-style
+// abuse where the attacker burns through many pending signups in parallel.
+const registerVerifyLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: ipKey,
+    message: { success: false, message: 'Too many verification attempts. Try again later.' }
+});
+
 const refreshLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 60,
@@ -71,5 +85,6 @@ module.exports = {
     forgotPasswordLimiter,
     resetPasswordLimiter,
     registerLimiter,
+    registerVerifyLimiter,
     refreshLimiter
 };

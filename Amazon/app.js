@@ -22,7 +22,7 @@ const requireProdEnv = () => {
     if (process.env.NODE_ENV !== 'production') return;
     const required = [
         'MONGO_CONN',
-        'PRODUCTS_SECRET',
+        'SECRET',
         'AUTH_SERVER_URL',
         'INTERNAL_AUTH_SECRET',
         'TT_GATEWAY_URL',

@@ -72,7 +72,7 @@ def require_prod_env():
         return
     required = [
         'MONGO_CONN',
-        'PRODUCT_SECRET',
+        'SECRET',
         'AUTH_SERVER_URL',
         'INTERNAL_AUTH_SECRET',
         'TT_GATEWAY_URL',

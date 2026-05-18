@@ -26,6 +26,12 @@ function AuthRegistration() {
     const [showPassword, setShowPassword] = useState(false);
     const [errorBanner, setErrorBanner] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    // Two-step signup: 'form' collects credentials and triggers the OTP email;
+    // 'verify' shows the OTP entry that creates the account + auto-logs in.
+    const [step, setStep] = useState('form');
+    const [otp, setOtp] = useState('');
+    const [otpEmail, setOtpEmail] = useState('');
+    const [resending, setResending] = useState(false);
 
     const navigate = useNavigate();
 
@@ -101,11 +107,15 @@ function AuthRegistration() {
             });
 
             const result = await response.json().catch(() => ({}));
-            const { success, message, error } = result;
+            const { success, message, error, email: respEmail } = result;
 
             if (response.ok && success) {
-                handleSuccess(message);
-                navigate('/auth/login');
+                // Step 1 succeeded — server mailed an OTP and set the
+                // pendingSignup cookie. Move to step 2 (OTP entry).
+                setOtpEmail(respEmail || formData.email);
+                setOtp('');
+                setStep('verify');
+                handleSuccess(message || 'Verification code sent. Check your inbox.');
                 return;
             }
 
@@ -118,6 +128,78 @@ function AuthRegistration() {
             setErrorBanner(err.message || 'Network error. Please try again.');
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    const handleVerifyOtp = async (e) => {
+        e.preventDefault();
+        const code = String(otp || '').trim();
+        if (!/^\d{6}$/.test(code)) {
+            return setErrorBanner('Enter the 6-digit code from your email.');
+        }
+
+        setSubmitting(true);
+        setErrorBanner('');
+
+        try {
+            const response = await authFetch('/register/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ otp: code })
+            });
+
+            const result = await response.json().catch(() => ({}));
+            const { success, message } = result;
+
+            if (response.ok && success) {
+                handleSuccess(message || 'Account verified.');
+                // verifySignupOtp already issued authToken + authRefreshToken,
+                // so the user is logged in — drop them on the dashboard.
+                navigate('/auth/dashboard');
+                return;
+            }
+
+            // 401 = pendingSignup cookie missing/expired — send the user
+            // back to step 1 so they can re-enter the form and re-trigger
+            // the OTP email.
+            if (response.status === 401) {
+                setStep('form');
+                setErrorBanner(message || 'Signup session expired. Please register again.');
+                return;
+            }
+
+            setErrorBanner(message || 'Could not verify your code. Try again.');
+        } catch (err) {
+            setErrorBanner(err.message || 'Network error. Please try again.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleResendOtp = async () => {
+        if (resending) return;
+        setResending(true);
+        setErrorBanner('');
+        try {
+            // Re-POST the original form so the server re-mails a fresh code
+            // and refreshes the pendingSignup cookie. The per-address resend
+            // cooldown in the mailer absorbs accidental double-clicks.
+            const response = await authFetch('/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData)
+            });
+            const result = await response.json().catch(() => ({}));
+            if (response.ok && result.success) {
+                handleSuccess('A new code has been sent to your email.');
+                setOtp('');
+            } else {
+                setErrorBanner(result.message || 'Could not resend the code. Try again later.');
+            }
+        } catch (err) {
+            setErrorBanner(err.message || 'Network error. Please try again.');
+        } finally {
+            setResending(false);
         }
     };
 
@@ -233,8 +315,15 @@ function AuthRegistration() {
                         >
                             <div className="text-left mb-8">
                                 <h2 className="font-headline font-bold text-2xl text-[#0b1c30] mb-2 text-left">
-                                    Create Your Account
+                                    {step === 'verify' ? 'Verify Your Email' : 'Create Your Account'}
                                 </h2>
+                                {step === 'verify' && (
+                                    <p className="font-body text-sm text-[#5f5e5e]">
+                                        We sent a 6-digit code to{' '}
+                                        <span className="font-medium text-[#0b1c30]">{otpEmail}</span>.
+                                        Enter it below to finish creating your account.
+                                    </p>
+                                )}
                             </div>
                             {errorBanner && (
                                 <div
@@ -250,6 +339,85 @@ function AuthRegistration() {
                                     <span>{errorBanner}</span>
                                 </div>
                             )}
+                            {step === 'verify' ? (
+                                <form onSubmit={handleVerifyOtp} className="space-y-5">
+                                    <div>
+                                        <label
+                                            className="block w-full pl-0 ml-0 text-left font-headline font-medium text-sm text-[#0b1c30] mb-1.5"
+                                            htmlFor="otp"
+                                        >
+                                            Verification Code
+                                        </label>
+                                        <div className="relative">
+                                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                                <span className="material-symbols-outlined text-[#5f5e5e] text-lg">
+                                                    pin
+                                                </span>
+                                            </div>
+                                            <input
+                                                id="otp"
+                                                name="otp"
+                                                type="text"
+                                                inputMode="numeric"
+                                                pattern="\d{6}"
+                                                maxLength={6}
+                                                autoComplete="one-time-code"
+                                                value={otp}
+                                                onChange={(e) => {
+                                                    setOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                                                    if (errorBanner) setErrorBanner('');
+                                                }}
+                                                required
+                                                className="block w-full pl-10 pr-3 py-2.5 border border-[#dce9ff] rounded bg-[#f8f9ff] text-[#0b1c30] sm:text-sm font-body tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-[#426fe7] focus:border-[#426fe7] transition-shadow"
+                                            />
+                                        </div>
+                                        <p className="text-xs mt-1.5" style={{ color: '#5f5e5e' }}>
+                                            The code expires in 10 minutes.
+                                        </p>
+                                    </div>
+                                    <div className="pt-2">
+                                        <button
+                                            type="submit"
+                                            disabled={submitting}
+                                            className="w-full flex justify-center items-center py-2.5 px-4 border border-transparent rounded shadow-sm text-sm font-headline font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                                            style={{
+                                                backgroundColor: ACCENT,
+                                                color: '#ffffff'
+                                            }}
+                                        >
+                                            {submitting ? 'Verifying…' : 'Verify and Continue'}
+                                            {!submitting && (
+                                                <span className="material-symbols-outlined ml-2 text-sm">
+                                                    arrow_forward
+                                                </span>
+                                            )}
+                                        </button>
+                                    </div>
+                                    <div className="flex items-center justify-between text-sm font-body pt-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setStep('form');
+                                                setOtp('');
+                                                setErrorBanner('');
+                                            }}
+                                            className="font-headline font-medium hover:underline cursor-pointer bg-transparent border-0 p-0"
+                                            style={{ color: ACCENT }}
+                                        >
+                                            ← Edit details
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleResendOtp}
+                                            disabled={resending}
+                                            className="font-headline font-medium hover:underline cursor-pointer bg-transparent border-0 p-0 disabled:opacity-60"
+                                            style={{ color: ACCENT }}
+                                        >
+                                            {resending ? 'Resending…' : 'Resend code'}
+                                        </button>
+                                    </div>
+                                </form>
+                            ) : (
                             <form onSubmit={handleSubmit} className="space-y-5">
                                 <div>
                                     <label
@@ -410,9 +578,14 @@ function AuthRegistration() {
                                     </button>
                                 </div>
                             </form>
+                            )}
 
-                            <GoogleDivider />
-                            <GoogleSignInButton label="Sign up with Google" />
+                            {step === 'form' && (
+                                <>
+                                    <GoogleDivider />
+                                    <GoogleSignInButton label="Sign up with Google" />
+                                </>
+                            )}
 
                             <div className="mt-8 pt-6 border-t border-[#dce9ff] text-center">
                                 <p className="font-body text-sm">

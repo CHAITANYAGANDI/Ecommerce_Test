@@ -93,7 +93,7 @@ def ensure_authenticated(func):
         try:
             decoded = jwt.decode(
                 auth,
-                os.getenv("INVENTORY_SECRET"),
+                os.getenv("SECRET"),
                 algorithms=["HS256"]
             )
             request.inventory = decoded
@@ -135,7 +135,7 @@ def ensure_authenticated(func):
 
         except jwt.InvalidSignatureError:
             return jsonify({
-                "error": "Token signature verification failed. Check that INVENTORY_SECRET matches the secret_key used to sign the token in Auth/server.",
+                "error": "Token signature verification failed. Check that SECRET matches the secret_key used to sign the token in Auth/server.",
             }), 403
 
         except Exception as e:

@@ -11,7 +11,7 @@ const otpSchema = new Schema({
     },
     purpose: {
         type: String,
-        enum: ['recovery'],
+        enum: ['recovery', 'signup'],
         required: true,
         default: 'recovery'
     },

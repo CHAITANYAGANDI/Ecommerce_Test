@@ -22,20 +22,21 @@ const createCredential = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Invalid input' });
         }
 
-        // SSRF prevention: refuse private IPs / .local hostnames, and
-        // require https:// in production. We can't fully resolve DNS here
-        // (it may differ at use-time anyway), so the runtime SSRF check
-        // re-validates before any outbound call.
+        // SSRF prevention: in production, refuse private IPs / .local
+        // hostnames and require https://. In dev we accept any parseable
+        // URL (including http://localhost) so the authorize flow can be
+        // exercised end-to-end locally. The runtime SSRF check
+        // re-validates before any outbound call in prod.
         if (!isStaticallySafeUrl(redirect_uri)) {
             return res.status(400).json({
                 success: false,
-                message: 'redirect_uri must be a public https URL (http allowed in dev only)'
+                message: 'redirect_uri must be a valid URL (https + public host required in production)'
             });
         }
         if (!isStaticallySafeUrl(api_url)) {
             return res.status(400).json({
                 success: false,
-                message: 'api_url must be a public https URL (http allowed in dev only)'
+                message: 'api_url must be a valid URL (https + public host required in production)'
             });
         }
 

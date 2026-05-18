@@ -47,12 +47,17 @@ const isPrivateIPv6 = (ip) => {
 // Synchronous static checks — no DNS. Good for blocking obvious
 // `localhost`, `127.0.0.1`, and literal private IPs at credential
 // creation time. For runtime SSRF protection use `assertSafeOutbound`.
+//
+// In non-production NODE_ENV we relax the localhost / private-IP block
+// so local dev (http://localhost:PORT/...) can register and exercise
+// the authorize flow end-to-end. Prod behavior is unchanged.
 const isStaticallySafeUrl = (raw) => {
     try {
         const u = new URL(raw);
         if (u.protocol !== 'https:' && !(u.protocol === 'http:' && !isProd())) return false;
         const host = u.hostname;
         if (!host) return false;
+        if (!isProd()) return true;
         const lh = host.toLowerCase();
         if (lh === 'localhost' || lh === 'localhost.localdomain') return false;
         if (lh.endsWith('.local') || lh.endsWith('.internal')) return false;
@@ -67,9 +72,18 @@ const isStaticallySafeUrl = (raw) => {
 // Runtime SSRF check: resolve the hostname, refuse if any A/AAAA record
 // points at a private range. DNS-rebinding-aware callers should pin the
 // resolved IP and reuse it for the actual request.
+//
+// In non-production NODE_ENV we skip the private-range block so the
+// authorize callback can hit http://localhost:PORT during local dev.
 const assertSafeOutbound = async (raw) => {
     const u = new URL(raw);
     const host = u.hostname;
+
+    if (!isProd()) {
+        if (net.isIP(host)) return host;
+        const records = await dns.lookup(host, { all: true });
+        return records[0]?.address || host;
+    }
 
     // Literal IPs: check directly.
     if (net.isIP(host)) {

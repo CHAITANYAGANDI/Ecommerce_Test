@@ -22,6 +22,7 @@ const { me, logout } = require('../Controllers/SessionController');
 const { refresh } = require('../Controllers/RefreshController');
 const refreshProviderToken = require('../Controllers/TokenRefreshController');
 const introspectActiveJti = require('../Controllers/TokenIntrospectController');
+const verifySignupOtp = require('../Middlewares/verifySignupOtp');
 
 const { requireCsrf } = require('../Middlewares/csrf');
 const requireSameOrigin = require('../Middlewares/requireSameOrigin');
@@ -30,6 +31,7 @@ const {
     forgotPasswordLimiter,
     resetPasswordLimiter,
     registerLimiter,
+    registerVerifyLimiter,
     refreshLimiter
 } = require('../Middlewares/authRateLimit');
 
@@ -59,7 +61,13 @@ router.post('/logout', requireCsrf, logout);
 // server-rendered, but the Origin header check is strict enough).
 router.post('/client/login', requireSameOrigin, loginClients);
 
+// Two-step signup: /register validates the form, stashes the pending profile
+// in a `pendingSignup` JWT cookie, and mails a 6-digit OTP. /register/verify
+// reads the cookie + OTP, creates the Client, and auto-logs the user in. The
+// Client row only ever exists if the email was successfully verified.
 router.post('/register', registerLimiter, signupValidation, register);
+
+router.post('/register/verify', registerVerifyLimiter, verifySignupOtp);
 
 router.post('/credentials', verifyToken, requireCsrf, createCredential);
 
