@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { handleError, handleSuccess, authFetch } from '../utils';
+import { handleSuccess, authFetch } from '../utils';
 import GoogleSignInButton, { GoogleDivider } from './GoogleSignInButton';
 
 const ACCENT = '#426fe7';

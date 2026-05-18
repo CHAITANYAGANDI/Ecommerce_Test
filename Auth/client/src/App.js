@@ -1,6 +1,5 @@
 import React from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
-import { useState } from 'react';
+import { Route, Routes } from "react-router-dom";
 import CenterToast from "./components/CenterToast";
 import AuthRegistration from "./components/AuthRegistration";
 import AuthLogin from "./components/AuthLogin";
