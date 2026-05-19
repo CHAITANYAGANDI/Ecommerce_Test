@@ -36,12 +36,15 @@ const updateUsername = async (req, res) => {
 
         res.cookie('authToken', signAccessToken(client), authCookieOptions(ACCESS_TOKEN_TTL_MS));
         res.cookie('authRefreshToken', signRefreshToken(client), authCookieOptions(REFRESH_TOKEN_TTL_MS));
-        issueCsrfToken(res);
+        // Return the rotated CSRF token in the body so the SPA can refresh
+        // its cached copy — see SessionController.me for the rationale.
+        const csrfToken = issueCsrfToken(res);
 
         return res.status(200).json({
             success: true,
             message: 'Username updated',
-            client: { username: client.username, name: client.name }
+            client: { username: client.username, name: client.name },
+            csrfToken
         });
     } catch (error) {
         // eslint-disable-next-line no-console

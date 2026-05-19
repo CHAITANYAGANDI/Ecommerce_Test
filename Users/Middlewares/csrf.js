@@ -15,9 +15,17 @@ const csrfCookieOptions = () => ({
 });
 
 const issueCsrfToken = (req, res, next) => {
-    if (!req.cookies || !req.cookies[CSRF_COOKIE]) {
-        res.cookie(CSRF_COOKIE, crypto.randomBytes(32).toString('hex'), csrfCookieOptions());
+    let token = req.cookies && req.cookies[CSRF_COOKIE];
+    if (!token) {
+        token = crypto.randomBytes(32).toString('hex');
+        res.cookie(CSRF_COOKIE, token, csrfCookieOptions());
     }
+    // Stash on res.locals so the `/csrf-token` endpoint (and any handler
+    // that wants to surface the token in its response body) can read it.
+    // Reading req.cookies in the handler isn't enough: when this
+    // middleware just MINTED a new token, the value is only in the
+    // outgoing Set-Cookie header, not in the incoming Cookie jar.
+    res.locals.csrfToken = token;
     next();
 };
 

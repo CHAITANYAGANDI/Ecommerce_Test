@@ -57,11 +57,14 @@ const refresh = async (req, res) => {
 
         res.cookie('authToken', signAccessToken(client), authCookieOptions(ACCESS_TOKEN_TTL_MS));
         res.cookie('authRefreshToken', signRefreshToken(client), authCookieOptions(REFRESH_TOKEN_TTL_MS));
-        issueCsrfToken(res);
+        // Return the new CSRF token in the body — see SessionController.me
+        // for the cross-registrable-domain rationale.
+        const csrfToken = issueCsrfToken(res);
 
         return res.status(200).json({
             success: true,
-            client: { username: client.username, name: client.name }
+            client: { username: client.username, name: client.name },
+            csrfToken
         });
     } catch (err) {
         // eslint-disable-next-line no-console

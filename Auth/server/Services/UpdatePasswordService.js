@@ -56,9 +56,11 @@ const updatePassword = async (req, res) => {
         // caller doesn't get logged out by their own action.
         res.cookie('authToken', signAccessToken(client), authCookieOptions(ACCESS_TOKEN_TTL_MS));
         res.cookie('authRefreshToken', signRefreshToken(client), authCookieOptions(REFRESH_TOKEN_TTL_MS));
-        issueCsrfToken(res);
+        // Return the rotated CSRF token in the body so the SPA can refresh
+        // its cached copy — see SessionController.me for the rationale.
+        const csrfToken = issueCsrfToken(res);
 
-        return res.status(200).json({ success: true, message: 'Password updated' });
+        return res.status(200).json({ success: true, message: 'Password updated', csrfToken });
     } catch (error) {
         // eslint-disable-next-line no-console
         console.error('updatePassword error:', error.message);

@@ -210,18 +210,58 @@ const getCookie = (name) => {
         ?.slice(prefix.length) || null;
 };
 
+// In-memory CSRF token cache. On deploys where the API gateway and SPA
+// live on different registrable domains (e.g. *.onrender.com, which the
+// Public Suffix List treats as separate), document.cookie at the SPA
+// origin can't read the gateway-origin csrfToken cookie. The cookie
+// still ships back automatically thanks to SameSite=None +
+// credentials:'include' so requireCsrf can compare cookie vs header,
+// but the SPA must learn the value from a response body. We capture it
+// opportunistically from any JSON response, and fall back to a dedicated
+// /csrf-token bootstrap fetch on first state-changing request.
+let cachedCsrfToken = null;
+let csrfBootstrapInFlight = null;
+
+const captureCsrfFromBody = (body) => {
+    if (body && typeof body === 'object' && typeof body.csrfToken === 'string') {
+        cachedCsrfToken = body.csrfToken;
+    }
+};
+
+const bootstrapCsrfToken = () => {
+    if (!csrfBootstrapInFlight) {
+        csrfBootstrapInFlight = fetch(`${API_BASE}/csrf-token`, { credentials: 'include' })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((body) => {
+                captureCsrfFromBody(body);
+                return cachedCsrfToken;
+            })
+            .catch(() => null)
+            .finally(() => {
+                csrfBootstrapInFlight = null;
+            });
+    }
+    return csrfBootstrapInFlight;
+};
+
+const readCsrfToken = () => {
+    if (cachedCsrfToken) return cachedCsrfToken;
+    const fromCookie = getCookie('csrfToken');
+    return fromCookie ? decodeURIComponent(fromCookie) : null;
+};
+
 const withCsrfHeader = (options = {}) => {
     const method = String(options.method || 'GET').toUpperCase();
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return options;
 
-    const csrfToken = getCookie('csrfToken');
+    const csrfToken = readCsrfToken();
     if (!csrfToken) return options;
 
     return {
         ...options,
         headers: {
             ...(options.headers || {}),
-            'x-csrf-token': decodeURIComponent(csrfToken)
+            'x-csrf-token': csrfToken
         }
     };
 };
@@ -232,7 +272,19 @@ const tryRefresh = () => {
             method: 'POST',
             credentials: 'include'
         }))
-            .then((r) => r.ok)
+            .then(async (r) => {
+                if (!r.ok) return false;
+                // Capture rotated CSRF token so the retried request uses
+                // the new value. Without this every refresh-then-retry
+                // path would 403 on the retry with stale token.
+                try {
+                    const body = await r.clone().json();
+                    captureCsrfFromBody(body);
+                } catch {
+                    // ignore
+                }
+                return true;
+            })
             .catch(() => false)
             .finally(() => {
                 refreshInFlight = null;
@@ -272,9 +324,35 @@ const redirectToLogin = (url) => {
     window.location.replace(target);
 };
 
+// Tee the response so we can peek at the body to capture rotated CSRF
+// tokens. Caller still gets a fresh, unread Response.
+const fetchAndCaptureCsrf = async (url, init) => {
+    const res = await fetch(url, init);
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+        try {
+            const body = await res.clone().json();
+            captureCsrfFromBody(body);
+        } catch {
+            // ignore
+        }
+    }
+    return res;
+};
+
 const fetchWithRefresh = async (url, options) => {
+    const method = String(options.method || 'GET').toUpperCase();
+    const isStateChange = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+
+    // First state-changing request from a fresh page load won't have a
+    // cached token yet (and document.cookie likely can't read it cross-
+    // domain on Render). Bootstrap before sending or we 403 on first try.
+    if (isStateChange && !cachedCsrfToken) {
+        await bootstrapCsrfToken();
+    }
+
     const init = { credentials: 'include', ...withCsrfHeader(options) };
-    let res = await fetch(url, init);
+    let res = await fetchAndCaptureCsrf(url, init);
 
     // /auth/refresh and the *both* /auth/me + /admin/me endpoints exist so
     // we can check session state. They must NOT auto-refresh-and-retry (that
@@ -287,7 +365,8 @@ const fetchWithRefresh = async (url, options) => {
     if (res.status === 401 && !isSessionProbe) {
         const refreshed = await tryRefresh();
         if (refreshed) {
-            res = await fetch(url, init);
+            // Re-apply the CSRF header — /refresh rotated the token.
+            res = await fetchAndCaptureCsrf(url, { credentials: 'include', ...withCsrfHeader(options) });
             // If refresh succeeded but the retry still came back 401 the
             // refresh token must have been revoked between the two calls —
             // treat the same as refresh-failed and bounce to login.
@@ -393,7 +472,12 @@ export const fetchPriceAdvice = async (provider, productId) => {
 
 export const askProductQuestion = async ({ provider, productId, product_name, product_description, product_features, product_price, question }) => {
     try {
-        const res = await fetch(`${API_BASE}/ai/product-qa`, {
+        // Endpoint is publicly accessible (no auth required), but if the
+        // caller IS logged in their session cookie is sent automatically
+        // and requireCsrf will demand the x-csrf-token header. Bootstrap
+        // the token if we don't have it cached, then add the header.
+        if (!cachedCsrfToken) await bootstrapCsrfToken();
+        const init = withCsrfHeader({
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -407,6 +491,7 @@ export const askProductQuestion = async ({ provider, productId, product_name, pr
                 question
             })
         });
+        const res = await fetchAndCaptureCsrf(`${API_BASE}/ai/product-qa`, init);
         const data = await res.json().catch(() => ({}));
         return { ok: res.ok, status: res.status, ...data };
     } catch (err) {

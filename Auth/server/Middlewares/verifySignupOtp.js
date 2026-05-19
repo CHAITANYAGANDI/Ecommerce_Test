@@ -129,12 +129,16 @@ const verifySignupOtp = async (req, res) => {
         res.cookie('authToken', signAccessToken(client), authCookieOptions(ACCESS_TOKEN_TTL_MS));
         res.cookie('authRefreshToken', signRefreshToken(client), authCookieOptions(REFRESH_TOKEN_TTL_MS));
         res.clearCookie('pendingSignup', clearCookieOptions());
-        issueCsrfToken(res);
+        // Return the CSRF token in the body so the SPA can cache it —
+        // cross-registrable-domain deploys can't read it from
+        // document.cookie. See SessionController.me for full rationale.
+        const csrfToken = issueCsrfToken(res);
 
         return res.status(200).json({
             message: 'Email verified — welcome to AuthShield!',
             success: true,
-            client: { name: client.name, username: client.username }
+            client: { name: client.name, username: client.username },
+            csrfToken
         });
 
     } catch (err) {

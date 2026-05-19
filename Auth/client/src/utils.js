@@ -59,13 +59,31 @@ export const isValidUsername = (u) =>
 export const AUTH_API_BASE = process.env.REACT_APP_AUTH_URL || 'http://localhost:5000/auth';
 
 
-// Read the CSRF cookie value. The server sets `csrfToken` as a non-httpOnly
-// cookie on login/refresh/me; we echo it back in the `x-csrf-token` header
-// on every state-changing request. Cross-site attackers can't read this
-// cookie value because of same-origin restrictions on document.cookie, so
-// they can't forge the matching header — that's what stops CSRF even
-// though the cookie itself is sent automatically by the browser.
+// In-memory cache of the CSRF token. The server sets `csrfToken` as a
+// non-httpOnly cookie on every authenticated response (login, refresh,
+// /me, signup-verify, username/password update); the browser auto-sends
+// it back on every cross-origin call thanks to SameSite=None +
+// credentials:'include'. We echo it in the `x-csrf-token` header on every
+// state-changing request — cross-site attackers can't forge the header
+// because they can't read the cookie value (same-origin restrictions on
+// document.cookie / opaque cross-origin response bodies).
+//
+// We CAN'T rely on document.cookie for the value, though: on deploys
+// where the API and SPA live on different registrable domains (e.g.
+// *.onrender.com — separated by the Public Suffix List), JS at the SPA
+// origin can't see cookies set by the API origin. So we cache the token
+// in memory and capture fresh values from every response body that
+// carries one. document.cookie remains a fallback for same-origin dev.
+let cachedCsrfToken = null;
+
+const captureCsrfFromBody = (body) => {
+    if (body && typeof body === 'object' && typeof body.csrfToken === 'string') {
+        cachedCsrfToken = body.csrfToken;
+    }
+};
+
 const readCsrfToken = () => {
+    if (cachedCsrfToken) return cachedCsrfToken;
     if (typeof document === 'undefined') return null;
     const match = document.cookie.match(/(?:^|; )csrfToken=([^;]+)/);
     return match ? decodeURIComponent(match[1]) : null;
@@ -82,7 +100,21 @@ const tryRefresh = () => {
             method: 'POST',
             credentials: 'include'
         })
-            .then((r) => r.ok)
+            .then(async (r) => {
+                if (!r.ok) return false;
+                // Capture the rotated CSRF token from the body so the
+                // retried request can echo it back. Without this, every
+                // 401-then-refresh-then-retry path would send the stale
+                // cached token (or no token at all on first boot) and
+                // hit 403 CSRF-missing on the retry.
+                try {
+                    const body = await r.clone().json();
+                    captureCsrfFromBody(body);
+                } catch {
+                    // ignore
+                }
+                return true;
+            })
             .catch(() => false)
             .finally(() => {
                 refreshInFlight = null;
@@ -106,17 +138,34 @@ const withCsrf = (init) => {
 };
 
 
+// Wrap fetch so we can peek at response bodies to capture rotated CSRF
+// tokens. We tee the Response by cloning it before reading — the caller
+// still gets a fresh, unread Response.
+const fetchAndCaptureCsrf = async (url, init) => {
+    const res = await fetch(url, init);
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+        try {
+            const body = await res.clone().json();
+            captureCsrfFromBody(body);
+        } catch {
+            // Not JSON or parse failed — leave cache as-is.
+        }
+    }
+    return res;
+};
+
 export const authFetch = async (path, options = {}) => {
     const url = `${AUTH_API_BASE}${path}`;
     const init = withCsrf({ credentials: 'include', ...options });
-    let res = await fetch(url, init);
+    let res = await fetchAndCaptureCsrf(url, init);
 
     const isRefreshCall = path === '/refresh' || path === '/me';
     if (res.status === 401 && !isRefreshCall) {
         const refreshed = await tryRefresh();
         if (refreshed) {
             // Re-read the CSRF token — /refresh issues a new one.
-            res = await fetch(url, withCsrf({ credentials: 'include', ...options }));
+            res = await fetchAndCaptureCsrf(url, withCsrf({ credentials: 'include', ...options }));
         }
     }
     return res;

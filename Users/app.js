@@ -139,6 +139,18 @@ app.use(issueCsrfToken);
 app.use(requireCsrf);
 
 
+// CSRF token endpoint. The SPA calls this on boot to learn the current
+// double-submit token. We can't expose the cookie value via JS at the SPA
+// origin (the API is on a different registrable domain on Render, so
+// document.cookie can't read it), so the SPA must learn the value from
+// a request body. The cookie is still set + still sent automatically by
+// the browser on every request — requireCsrf compares cookie vs header
+// as usual.
+app.get('/csrf-token', (req, res) => {
+    res.json({ success: true, csrfToken: res.locals.csrfToken });
+});
+
+
 app.get('/health', (req, res) => {
     res.json({
         status: 'ok',

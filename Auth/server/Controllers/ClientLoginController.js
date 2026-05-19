@@ -39,7 +39,11 @@ const login = async (req, res) => {
 
         res.cookie('authToken', signAccessToken(client), authCookieOptions(ACCESS_TOKEN_TTL_MS));
         res.cookie('authRefreshToken', signRefreshToken(client), authCookieOptions(REFRESH_TOKEN_TTL_MS));
-        issueCsrfToken(res);
+        // Return the CSRF token in the body so the SPA can cache it —
+        // cross-registrable-domain deploys (e.g. Render) can't read the
+        // cookie via document.cookie. See SessionController.me for full
+        // rationale.
+        const csrfToken = issueCsrfToken(res);
 
         res.status(200).json({
             message: "Access Granted",
@@ -47,7 +51,8 @@ const login = async (req, res) => {
             client: {
                 username: client.username,
                 name: client.name
-            }
+            },
+            csrfToken
         })
 
     } catch (err) {
