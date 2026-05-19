@@ -28,7 +28,7 @@ import ConfirmModal from './components/ConfirmModal';
 
 function App() {
 
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [, setIsAuthenticated] = useState(false);
 
     return (
 

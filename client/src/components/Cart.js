@@ -49,6 +49,9 @@ function Cart() {
       }
     });
     return () => { cancelled = true; };
+    // fetchCartDetails is intentionally not in deps — this effect is the
+    // one-time auth-resolve-and-load on mount, not a reactive sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleLogout = async () => {
