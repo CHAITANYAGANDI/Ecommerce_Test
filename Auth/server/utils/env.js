@@ -27,10 +27,13 @@ const validateEnv = () => {
         if (hasGoogleId !== hasGoogleSecret) {
             missing.push('GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET (both required if either is set)');
         }
-        // Resend API key is required in production — without it, the
-        // signup OTP and password-reset flows both fail closed.
-        if (!process.env.RESEND_API_KEY) {
-            missing.push('RESEND_API_KEY');
+        // Brevo API key + verified sender are required in production —
+        // without either, signup OTP and password-reset both fail closed.
+        if (!process.env.BREVO_API_KEY) {
+            missing.push('BREVO_API_KEY');
+        }
+        if (!process.env.MAIL_FROM) {
+            missing.push('MAIL_FROM');
         }
     }
 

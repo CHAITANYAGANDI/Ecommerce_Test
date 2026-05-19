@@ -1,30 +1,58 @@
-const { Resend } = require('resend');
+const axios = require('axios');
 const crypto = require('crypto');
 const { setOtp, isInResendCooldown } = require('./OtpService');
 
-// HTTPS-based mailer (Resend). Replaced nodemailer/Gmail SMTP because
-// Render's free tier blocks outbound SMTP — port 465/587/25 all time
-// out at the egress firewall. Resend's REST API runs over 443, which
-// Render allows. Same flows, same return shape; only the transport is
-// different. Sandbox sender `onboarding@resend.dev` works without a
-// verified domain (useful for the first prod cut); override via MAIL_FROM
-// once you've verified your own domain in the Resend dashboard.
-const SANDBOX_SENDER = 'AuthShield <onboarding@resend.dev>';
+// HTTPS-based mailer (Brevo). Replaced Resend because Resend requires a
+// verified domain to send to recipients other than the account owner —
+// for a class project we don't have a real domain to add DNS records to.
+// Brevo's free tier (300/day) lets you verify a single sender email
+// address by clicking a link, then send FROM that address TO anyone, no
+// DNS control needed. Render's free tier still blocks SMTP, so we use
+// Brevo's REST API over HTTPS.
+const BREVO_ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
 
-let cachedClient = null;
-const getClient = () => {
-    if (!cachedClient) {
-        cachedClient = new Resend(process.env.RESEND_API_KEY);
+// Accept "Name <email>" or bare "email" in MAIL_FROM. Brevo's API takes
+// sender as a structured { name, email } object — split it here.
+const parseSender = (raw) => {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) return null;
+    const match = trimmed.match(/^(.+?)\s*<([^>]+)>$/);
+    if (match) return { name: match[1].trim(), email: match[2].trim() };
+    return { name: trimmed, email: trimmed };
+};
+
+const sendViaBrevo = async ({ to, subject, text }) => {
+    const sender = parseSender(process.env.MAIL_FROM);
+    if (!sender) {
+        const err = new Error('MAIL_FROM not configured');
+        err.expected = true;
+        throw err;
     }
-    return cachedClient;
+    await axios.post(
+        BREVO_ENDPOINT,
+        {
+            sender,
+            to: [{ email: to }],
+            subject,
+            textContent: text
+        },
+        {
+            headers: {
+                'api-key': process.env.BREVO_API_KEY,
+                'content-type': 'application/json',
+                'accept': 'application/json'
+            },
+            timeout: 10000
+        }
+    );
 };
 
 async function sendPasswordResetOtp(email) {
     try {
-        if (!process.env.RESEND_API_KEY) {
+        if (!process.env.BREVO_API_KEY || !process.env.MAIL_FROM) {
             return {
                 success: false,
-                message: 'Email is not configured on the server. Set RESEND_API_KEY.'
+                message: 'Email is not configured on the server. Set BREVO_API_KEY and MAIL_FROM.'
             };
         }
 
@@ -40,8 +68,7 @@ async function sendPasswordResetOtp(email) {
         const otp = crypto.randomInt(100000, 1000000);
         await setOtp(email, otp, 'recovery');
 
-        const { error } = await getClient().emails.send({
-            from: process.env.MAIL_FROM || SANDBOX_SENDER,
+        await sendViaBrevo({
             to: email,
             subject: 'AuthShield password reset code',
             text:
@@ -50,27 +77,18 @@ async function sendPasswordResetOtp(email) {
                 `If you didn't request this, you can safely ignore this email.`
         });
 
-        if (error) {
-            // Resend returns { data, error } instead of throwing on
-            // API-level rejections (invalid sender, suppression list, etc.)
-            // — treat that as a send failure same as a transport throw.
-            // eslint-disable-next-line no-console
-            console.error('sendPasswordResetOtp error:', error.message || error.name);
-            return {
-                success: false,
-                message: 'Failed to send reset email',
-                error: error.message || error.name
-            };
-        }
-
         return { success: true, message: 'Verification email sent' };
     } catch (error) {
+        // Brevo errors come back as axios responses — surface the API
+        // message (e.g. "unauthorized", "sender_not_valid") so a misconfig
+        // shows up in the logs instead of just "Request failed with 401".
+        const apiMessage = error.response && error.response.data && error.response.data.message;
         // eslint-disable-next-line no-console
-        console.error('sendPasswordResetOtp error:', error.message);
+        console.error('sendPasswordResetOtp error:', apiMessage || error.message);
         return {
             success: false,
             message: 'Failed to send reset email',
-            error: error.message
+            error: apiMessage || error.message
         };
     }
 }
@@ -82,10 +100,10 @@ async function sendPasswordResetOtp(email) {
 // pendingSignup cookie if we return success:false).
 async function sendSignupOtp(email) {
     try {
-        if (!process.env.RESEND_API_KEY) {
+        if (!process.env.BREVO_API_KEY || !process.env.MAIL_FROM) {
             return {
                 success: false,
-                message: 'Email is not configured on the server. Set RESEND_API_KEY.'
+                message: 'Email is not configured on the server. Set BREVO_API_KEY and MAIL_FROM.'
             };
         }
 
@@ -99,8 +117,7 @@ async function sendSignupOtp(email) {
         const otp = crypto.randomInt(100000, 1000000);
         await setOtp(email, otp, 'signup');
 
-        const { error } = await getClient().emails.send({
-            from: process.env.MAIL_FROM || SANDBOX_SENDER,
+        await sendViaBrevo({
             to: email,
             subject: 'AuthShield email verification code',
             text:
@@ -109,24 +126,15 @@ async function sendSignupOtp(email) {
                 `If you didn't try to create an AuthShield account, you can safely ignore this email.`
         });
 
-        if (error) {
-            // eslint-disable-next-line no-console
-            console.error('sendSignupOtp error:', error.message || error.name);
-            return {
-                success: false,
-                message: 'Failed to send verification email',
-                error: error.message || error.name
-            };
-        }
-
         return { success: true, message: 'Verification email sent' };
     } catch (error) {
+        const apiMessage = error.response && error.response.data && error.response.data.message;
         // eslint-disable-next-line no-console
-        console.error('sendSignupOtp error:', error.message);
+        console.error('sendSignupOtp error:', apiMessage || error.message);
         return {
             success: false,
             message: 'Failed to send verification email',
-            error: error.message
+            error: apiMessage || error.message
         };
     }
 }

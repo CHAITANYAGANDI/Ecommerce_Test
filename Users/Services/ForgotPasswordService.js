@@ -1,4 +1,3 @@
-const { Resend } = require('resend');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
@@ -10,24 +9,12 @@ const {
     deleteOtp,
     MAX_ATTEMPTS
 } = require('../Services/OtpService');
+const { sendBrevoMail } = require('./_brevoMail');
 const { authCookieOptions, clearCookieOptions } = require('../utils/cookieOptions');
 
 
 const PENDING_RECOVERY_TTL_MS = 10 * 60 * 1000;
 const RECOVERY_GRANT_TTL_MS = 10 * 60 * 1000;
-
-// HTTPS-based mailer (Resend). See Services/MailService.js for the
-// rationale — Render's free tier blocks outbound SMTP, so the recovery
-// mailer can't use nodemailer/Gmail either.
-const SANDBOX_SENDER = 'Trendy Treasures <onboarding@resend.dev>';
-
-let cachedClient = null;
-const getResendClient = () => {
-    if (!cachedClient) {
-        cachedClient = new Resend(process.env.RESEND_API_KEY);
-    }
-    return cachedClient;
-};
 
 
 const forgotPassword = async (req, res) => {
@@ -45,22 +32,21 @@ const forgotPassword = async (req, res) => {
             return res.status(404).json({ message: "User not found", success: false });
         }
 
-        if (!process.env.RESEND_API_KEY) {
+        if (!process.env.BREVO_API_KEY || !process.env.MAIL_FROM) {
             return res.status(500).json({ message: "Email is not configured on the server", success: false });
         }
 
         const otp = crypto.randomInt(1000, 10000);
         await setOtp(email, otp, 'recovery');
 
-        const { error: mailErr } = await getResendClient().emails.send({
-            from: process.env.MAIL_FROM || SANDBOX_SENDER,
-            to: email,
-            subject: 'Trendy Treasures Password Recovery',
-            text: `Your OTP for password reset is ${otp}. This OTP will expire in 2 minutes.`
-        });
-
-        if (mailErr) {
-            console.error('Failed to send recovery email:', mailErr.message || mailErr.name);
+        try {
+            await sendBrevoMail({
+                to: email,
+                subject: 'Trendy Treasures Password Recovery',
+                text: `Your OTP for password reset is ${otp}. This OTP will expire in 2 minutes.`
+            });
+        } catch (mailErr) {
+            console.error('Failed to send recovery email:', mailErr.message);
             await deleteOtp(email, 'recovery');
             return res.status(500).json({ message: "Failed to send OTP email", success: false });
         }

@@ -34,7 +34,8 @@ const requireProdEnv = () => {
         'CLIENT_URL',
         'AUTH_SERVER_URL',
         'API_GATEWAY_URL',
-        'RESEND_API_KEY'
+        'BREVO_API_KEY',
+        'MAIL_FROM'
     ];
     const missing = required.filter((name) => !process.env[name]);
     if (missing.length) {
