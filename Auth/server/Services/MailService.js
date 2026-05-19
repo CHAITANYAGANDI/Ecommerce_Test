@@ -1,6 +1,14 @@
 const nodemailer = require('nodemailer');
+const dns = require('dns');
 const crypto = require('crypto');
 const { setOtp, isInResendCooldown } = require('./OtpService');
+
+// Node 17+ resolves AAAA records first by default. On networks without
+// working IPv6 egress (common on home ISPs / Render's outbound) that
+// causes nodemailer to hit ENETUNREACH on Gmail's IPv6 address before
+// it ever tries IPv4. `family: 4` on the transport isn't enough — the
+// initial DNS lookup still picks AAAA. Force the lookup order globally.
+dns.setDefaultResultOrder('ipv4first');
 
 const buildTransport = () =>
     nodemailer.createTransport({
