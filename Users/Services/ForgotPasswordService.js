@@ -1,4 +1,4 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
@@ -16,6 +16,19 @@ const { authCookieOptions, clearCookieOptions } = require('../utils/cookieOption
 const PENDING_RECOVERY_TTL_MS = 10 * 60 * 1000;
 const RECOVERY_GRANT_TTL_MS = 10 * 60 * 1000;
 
+// HTTPS-based mailer (Resend). See Services/MailService.js for the
+// rationale — Render's free tier blocks outbound SMTP, so the recovery
+// mailer can't use nodemailer/Gmail either.
+const SANDBOX_SENDER = 'Trendy Treasures <onboarding@resend.dev>';
+
+let cachedClient = null;
+const getResendClient = () => {
+    if (!cachedClient) {
+        cachedClient = new Resend(process.env.RESEND_API_KEY);
+    }
+    return cachedClient;
+};
+
 
 const forgotPassword = async (req, res) => {
 
@@ -32,28 +45,22 @@ const forgotPassword = async (req, res) => {
             return res.status(404).json({ message: "User not found", success: false });
         }
 
+        if (!process.env.RESEND_API_KEY) {
+            return res.status(500).json({ message: "Email is not configured on the server", success: false });
+        }
+
         const otp = crypto.randomInt(1000, 10000);
         await setOtp(email, otp, 'recovery');
 
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                user: process.env.MAIL_ADDRESS,
-                pass: process.env.MAIL_PASSWORD
-            }
-        });
-
-        const mailOptions = {
-            from: process.env.MAIL_ADDRESS,
+        const { error: mailErr } = await getResendClient().emails.send({
+            from: process.env.MAIL_FROM || SANDBOX_SENDER,
             to: email,
             subject: 'Trendy Treasures Password Recovery',
             text: `Your OTP for password reset is ${otp}. This OTP will expire in 2 minutes.`
-        };
+        });
 
-        try {
-            await transporter.sendMail(mailOptions);
-        } catch (mailErr) {
-            console.error('Failed to send recovery email:', mailErr.message);
+        if (mailErr) {
+            console.error('Failed to send recovery email:', mailErr.message || mailErr.name);
             await deleteOtp(email, 'recovery');
             return res.status(500).json({ message: "Failed to send OTP email", success: false });
         }

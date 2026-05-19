@@ -191,7 +191,7 @@ E_Commerce_Prod/
 | Gateway | Express + http-proxy-middleware v3 |
 | Database | MongoDB |
 | Auth | JWT (`jsonwebtoken`), bcryptjs, Google OAuth2 |
-| Mail | Nodemailer (Gmail SMTP) |
+| Mail | Resend (HTTPS API — required because Render's free tier blocks outbound SMTP) |
 | Security | helmet, express-rate-limit (Auth/server only), httpOnly cookies |
 
 ---
@@ -263,7 +263,7 @@ Browser                        Users service (gateway → :7001)
    │ ────────────────────────────────►│
    │                                  │ verify password
    │                                  │ generate OTP, save to otps collection
-   │                                  │ send OTP email via Nodemailer
+   │                                  │ send OTP email via Resend HTTPS API
    │                                  │ sign pendingAuth JWT (10 min, contains email/name)
    │  Set-Cookie: pendingAuth=…       │
    │ ◄────────────────────────────────│
@@ -486,8 +486,8 @@ Every service ships a `.env.example`. Copy it to `.env` and fill in real values.
 | Service | Required env vars |
 |---|---|
 | `APIGateway/` | `PORT`, `USERS_SERVICE_URL`, `AMAZON_SERVICE_URL`, `WALMART_SERVICE_URL`, `CORS_ORIGINS`, `MONGO_CONN` |
-| `Users/` | `PORT`, `NODE_ENV`, `MONGO_CONN`, `JWT_SECRET`, `CORS_ORIGINS`, `CLIENT_URL`, `AUTH_SERVER_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `MAIL_ADDRESS`, `MAIL_PASSWORD` |
-| `Auth/server/` | `PORT`, `NODE_ENV`, `MONGO_CONN`, `JWT_SECRET`, `CORS_ORIGINS` |
+| `Users/` | `PORT`, `NODE_ENV`, `MONGO_CONN`, `JWT_SECRET`, `CORS_ORIGINS`, `CLIENT_URL`, `AUTH_SERVER_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `RESEND_API_KEY`, `MAIL_FROM` |
+| `Auth/server/` | `PORT`, `NODE_ENV`, `MONGO_CONN`, `JWT_SECRET`, `CORS_ORIGINS`, `RESEND_API_KEY`, `MAIL_FROM` |
 | `Amazon/` | `PORT`, `MONGO_CONN`, `CORS_ORIGINS`, `SECRET` |
 | `Walmart/` | `PORT`, `MONGO_CONN`, `CORS_ORIGINS`, `SECRET` |
 | `client/` | `REACT_APP_API_URL`, `REACT_APP_AUTH_URL`, `REACT_APP_CLIENT_URL` (build-time only) |
@@ -526,7 +526,7 @@ Copy each `.env.example` to `.env` in the same directory and fill in the values.
 - `MONGO_URI` / `MONGO_CONN` (your MongoDB connection string)
 - `JWT_SECRET`, `SECRET` (used by both Amazon and Walmart) — any long random string; `SECRET` must hold the same value as Auth's `JWT_PROVIDER_SECRET`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` (only if testing Google sign-in)
-- `MAIL_ADDRESS`, `MAIL_PASSWORD` (Gmail app password — only if testing OTP/recovery)
+- `RESEND_API_KEY` (sign up at https://resend.com — only if testing OTP/recovery). Sender defaults to `onboarding@resend.dev`; set `MAIL_FROM` once you've verified a custom domain.
 
 ### Step 3 — Start everything
 
@@ -611,7 +611,7 @@ Each service deploys as its own web service. Steps:
 
 - **Cookies not arriving cross-origin** — confirm `credentials: 'include'` on every fetch (already done in this codebase) and `credentials: true` + a non-wildcard origin in CORS.
 - **Google OAuth redirect mismatch** — update `GOOGLE_REDIRECT_URI` in Google Cloud console to match the deployed Users service URL.
-- **OTP emails failing on Gmail** — Gmail requires an app password, not your account password.
+- **OTP emails not arriving on Render** — Render's free tier blocks outbound SMTP, so the mailer uses Resend's HTTPS API. Set `RESEND_API_KEY` and (if using a custom domain) `MAIL_FROM`. With the sandbox sender (`onboarding@resend.dev`), Resend will only deliver to addresses on your own Resend account — verify a domain in the dashboard before sending to real users.
 - **`creds` collection empty** — the gateway can't inject `productsauthorization` until an admin has completed the client-app authorization flow (§5.4) at least once per API.
 
 ---

@@ -27,11 +27,10 @@ const validateEnv = () => {
         if (hasGoogleId !== hasGoogleSecret) {
             missing.push('GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET (both required if either is set)');
         }
-        // Mail credentials must come as a pair.
-        const hasMailUser = !!process.env.MAIL_ADDRESS;
-        const hasMailPass = !!process.env.MAIL_PASSWORD;
-        if (hasMailUser !== hasMailPass) {
-            missing.push('MAIL_ADDRESS/MAIL_PASSWORD (both required if either is set)');
+        // Resend API key is required in production — without it, the
+        // signup OTP and password-reset flows both fail closed.
+        if (!process.env.RESEND_API_KEY) {
+            missing.push('RESEND_API_KEY');
         }
     }
 
