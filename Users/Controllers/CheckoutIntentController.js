@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const CheckoutIntentModel = require('../Models/CheckoutIntent');
+const CartModel = require('../Models/Cart');
 
 
 const generateReferralCode = () => `TT-${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
@@ -134,6 +135,22 @@ const completeIntent = async (req, res) => {
         if (!updated) {
             return res.status(404).json({ message: 'Referral not found.' });
         }
+
+        // Clear the ordered items from the user's cart. Only matches by
+        // productName within this intent's items so any cart additions made
+        // after redirect (other provider, new items) are preserved.
+        if (updated.userId && Array.isArray(updated.items) && updated.items.length > 0) {
+            const productNames = updated.items
+                .map((i) => i.productName)
+                .filter((n) => typeof n === 'string' && n.length > 0);
+            if (productNames.length > 0) {
+                await CartModel.deleteMany({
+                    userId: updated.userId,
+                    productName: { $in: productNames }
+                });
+            }
+        }
+
         return res.status(200).json({ success: true, status: updated.status });
     } catch (err) {
         console.error('completeIntent failed:', err.message);
