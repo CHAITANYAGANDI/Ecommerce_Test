@@ -143,7 +143,8 @@ app.get('/confirmation', (req, res) => {
 // it before the main checkout.js runs.
 app.get('/config.js', (req, res) => {
     res.type('application/javascript').send(
-        `window.STRIPE_PK = ${JSON.stringify(process.env.STRIPE_PUBLISHABLE_KEY || '')};`
+        `window.STRIPE_PK = ${JSON.stringify(process.env.STRIPE_PUBLISHABLE_KEY || '')};\n` +
+        `window.TT_GATEWAY_URL = ${JSON.stringify(process.env.TT_GATEWAY_URL || '')};`
     );
 });
 

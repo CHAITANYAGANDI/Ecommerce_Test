@@ -148,8 +148,10 @@ def confirmation_page():
 @app.route('/config.js')
 def config_js():
     pk = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
+    gateway_url = os.environ.get('TT_GATEWAY_URL', '')
     return Response(
-        f"window.STRIPE_PK = {json.dumps(pk)};",
+        f"window.STRIPE_PK = {json.dumps(pk)};\n"
+        f"window.TT_GATEWAY_URL = {json.dumps(gateway_url)};",
         mimetype='application/javascript'
     )
 
