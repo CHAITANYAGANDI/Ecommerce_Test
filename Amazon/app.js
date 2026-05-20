@@ -144,7 +144,8 @@ app.get('/confirmation', (req, res) => {
 app.get('/config.js', (req, res) => {
     res.type('application/javascript').send(
         `window.STRIPE_PK = ${JSON.stringify(process.env.STRIPE_PUBLISHABLE_KEY || '')};\n` +
-        `window.TT_GATEWAY_URL = ${JSON.stringify(process.env.TT_GATEWAY_URL || '')};`
+        `window.TT_GATEWAY_URL = ${JSON.stringify(process.env.TT_GATEWAY_URL || '')};\n` +
+        `window.TRENDY_TREASURES_URL = ${JSON.stringify(process.env.TRENDY_TREASURES_URL || '')};`
     );
 });
 

@@ -64,8 +64,9 @@
                 </svg>
                 Order placed
             </div>
-            <p class="amz-conf-meta">A confirmation email is on its way (in this simulation, it isn't actually sent).</p>
-            <p class="amz-conf-meta" id="amz-conf-summary"></p>
+            <p class="amz-conf-meta" id="amz-conf-order"></p>
+            <p class="amz-conf-meta" id="amz-conf-items"></p>
+            <p class="amz-conf-meta" id="amz-conf-total"></p>
             <p class="amz-conf-meta">You can track this order in your TrendyTreasures account.</p>
             <a class="amz-conf-cta" id="amz-back-link" href="http://localhost:3001/home">Back to TrendyTreasures</a>
         </div>
@@ -80,11 +81,9 @@
         const total = params.get('total');
         const itemCount = params.get('items');
         const orderId = params.get('orderId');
-        const summary = document.getElementById('amz-conf-summary');
-        const lines = [];
-        if (orderId) lines.push(`Order #${orderId}`);
-        if (total && itemCount) lines.push(`${itemCount} item${itemCount === '1' ? '' : 's'} · Total: $${total}`);
-        summary.textContent = lines.join(' · ');
+        if (orderId) document.getElementById('amz-conf-order').textContent = `Order #${orderId}`;
+        if (itemCount) document.getElementById('amz-conf-items').textContent = `${itemCount} item${itemCount === '1' ? '' : 's'}`;
+        if (total) document.getElementById('amz-conf-total').textContent = `Total: $${total}`;
         const back = document.getElementById('amz-back-link');
         if (window.TRENDY_TREASURES_URL) {
             back.href = window.TRENDY_TREASURES_URL + '/home';

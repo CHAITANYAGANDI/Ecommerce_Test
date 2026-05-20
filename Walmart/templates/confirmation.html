@@ -84,8 +84,9 @@
                 </span>
                 Order placed
             </div>
-            <p class="wm-conf-meta">A confirmation will be sent to your email (in this simulation, it isn't actually sent).</p>
-            <p class="wm-conf-meta" id="wm-conf-summary"></p>
+            <p class="wm-conf-meta" id="wm-conf-order"></p>
+            <p class="wm-conf-meta" id="wm-conf-items"></p>
+            <p class="wm-conf-meta" id="wm-conf-total"></p>
             <p class="wm-conf-meta">Track this order in your TrendyTreasures account.</p>
             <a class="wm-conf-cta" id="wm-back-link" href="http://localhost:3001/home">Back to TrendyTreasures</a>
         </div>
@@ -100,11 +101,9 @@
         const total = params.get('total');
         const itemCount = params.get('items');
         const orderId = params.get('orderId');
-        const summary = document.getElementById('wm-conf-summary');
-        const lines = [];
-        if (orderId) lines.push(`Order #${orderId}`);
-        if (total && itemCount) lines.push(`${itemCount} item${itemCount === '1' ? '' : 's'} · Total: $${total}`);
-        summary.textContent = lines.join(' · ');
+        if (orderId) document.getElementById('wm-conf-order').textContent = `Order #${orderId}`;
+        if (itemCount) document.getElementById('wm-conf-items').textContent = `${itemCount} item${itemCount === '1' ? '' : 's'}`;
+        if (total) document.getElementById('wm-conf-total').textContent = `Total: $${total}`;
         const back = document.getElementById('wm-back-link');
         if (window.TRENDY_TREASURES_URL) {
             back.href = window.TRENDY_TREASURES_URL + '/home';
