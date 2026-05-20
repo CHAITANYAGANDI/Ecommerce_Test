@@ -88,7 +88,7 @@
             <p class="wm-conf-meta" id="wm-conf-items"></p>
             <p class="wm-conf-meta" id="wm-conf-total"></p>
             <p class="wm-conf-meta">Track this order in your TrendyTreasures account.</p>
-            <a class="wm-conf-cta" id="wm-back-link" href="http://localhost:3001/home">Back to TrendyTreasures</a>
+            <a class="wm-conf-cta" id="wm-back-link" href="#">Back to TrendyTreasures</a>
         </div>
     </main>
 
@@ -104,10 +104,8 @@
         if (orderId) document.getElementById('wm-conf-order').textContent = `Order #${orderId}`;
         if (itemCount) document.getElementById('wm-conf-items').textContent = `${itemCount} item${itemCount === '1' ? '' : 's'}`;
         if (total) document.getElementById('wm-conf-total').textContent = `Total: $${total}`;
-        const back = document.getElementById('wm-back-link');
-        if (window.TRENDY_TREASURES_URL) {
-            back.href = window.TRENDY_TREASURES_URL + '/home';
-        }
+        const storefront = window.TRENDY_TREASURES_URL || 'http://localhost:3001';
+        document.getElementById('wm-back-link').href = storefront + '/home';
     </script>
 </body>
 </html>
