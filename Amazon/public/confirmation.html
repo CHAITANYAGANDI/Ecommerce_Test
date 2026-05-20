@@ -67,8 +67,6 @@
             <p class="amz-conf-meta" id="amz-conf-order"></p>
             <p class="amz-conf-meta" id="amz-conf-items"></p>
             <p class="amz-conf-meta" id="amz-conf-total"></p>
-            <p class="amz-conf-meta">You can track this order in your TrendyTreasures account.</p>
-            <a class="amz-conf-cta" id="amz-back-link" href="#">Back to TrendyTreasures</a>
         </div>
     </main>
 
@@ -84,8 +82,6 @@
         if (orderId) document.getElementById('amz-conf-order').textContent = `Order #${orderId}`;
         if (itemCount) document.getElementById('amz-conf-items').textContent = `${itemCount} item${itemCount === '1' ? '' : 's'}`;
         if (total) document.getElementById('amz-conf-total').textContent = `Total: $${total}`;
-        const storefront = window.TRENDY_TREASURES_URL || 'http://localhost:3001';
-        document.getElementById('amz-back-link').href = storefront + '/home';
     </script>
 </body>
 </html>
