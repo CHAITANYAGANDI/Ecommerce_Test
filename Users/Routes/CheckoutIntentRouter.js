@@ -6,8 +6,8 @@ const { createIntent, getIntent, completeIntent } = require('../Controllers/Chec
 // All endpoints are intentionally unauthenticated. The referralCode itself is
 // the capability — anyone holding a valid code can read the intent. Since the
 // intent contains no PII (just provider product ids and quantities), this is
-// safe and matches the Google-Flights-style hand-off model where neither side
-// needs to share user identity through the redirect.
+// safe and matches the aggregator-to-provider hand-off model where neither
+// side needs to share user identity through the redirect.
 
 router.post('/intent', createIntent);
 

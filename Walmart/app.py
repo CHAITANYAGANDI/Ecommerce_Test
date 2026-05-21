@@ -126,7 +126,7 @@ def health():
     })
 
 
-# ─── Source-branded mock storefront (Google-Flights-style redirect target) ──
+# ─── Source-branded mock storefront (provider redirect target) ─────────────
 #
 # TrendyTreasures (the aggregator) redirects the buyer here for the final
 # checkout step, so the experience visually leaves the aggregator and lands

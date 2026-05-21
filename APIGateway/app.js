@@ -317,7 +317,7 @@ const isRefreshableFailure = (status, bodyText) => {
 };
 
 
-// ─── On-read price snapshotting (Google-Flights-style) ──────────────────
+// ─── On-read price snapshotting ─────────────────────────────────────────
 //
 // After every product-detail request flows through the gateway, we
 // snapshot the price into the price_snapshots collection — but ONLY if

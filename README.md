@@ -1,565 +1,371 @@
-# TrendyTreasures — E-Commerce Microservices Platform
+# TrendyTreasures — Microservice E-Commerce Platform
 
-A modular e-commerce platform built with a microservices architecture. The storefront aggregates products from two simulated marketplaces (an "Amazon" Node.js service and a "Walmart" Python/Flask service), an API Gateway centralizes routing and injects access tokens, and a separate Auth server issues OAuth-style API credentials to authorized clients.
+TrendyTreasures is an online storefront made up of **seven small services** that work together. Shoppers see a single catalog, but the products actually come from two simulated providers (Amazon and Walmart). When the shopper is ready to pay, TrendyTreasures hands them over to the provider's own checkout page — the provider takes the money and ships the order. TrendyTreasures itself never touches the payment.
 
-This README documents the architecture, every service, every authentication flow, the data model, the runtime environment, and how to run and deploy the system end to end.
+> **Live deployment:** the storefront runs on Vercel, six backend services run on Render, data lives in MongoDB Atlas, payments go through Stripe (test mode), email is sent through Brevo, and AI features use OpenAI. For deeper details, see the [`docs/`](docs/) folder.
 
 ---
 
-## 1. High-level architecture
+## What makes this project interesting
+
+- **It mixes two programming languages.** Five services are written in Node.js + Express; one (Walmart) is written in Python + Flask. The two stacks talk to each other only through HTTP and signed JWTs, which proves the service boundaries really are language-agnostic.
+- **Three separate login systems, on purpose.** Shoppers, admins, and developers each have their own login flow with their own secret keys. If one secret leaks, the other two are unaffected.
+- **Asymmetric keys between the gateway and Auth.** The gateway signs with a private key; Auth verifies with a public key. So even if someone breaks into the Auth server, they still can't forge a new token without the gateway's private key.
+- **Payment amounts are recomputed on the server.** The browser never tells the provider how much to charge — the server figures out the price from a trusted record. A user editing the page can't pay less than they owe.
+- **Tokens can be revoked instantly.** Every provider token carries a `jti` (token ID). Re-authorizing rotates that ID, and any token with the old `jti` is rejected on the next call.
+- **Cross-domain CSRF protection.** Because the storefront is on `*.vercel.app` and the API is on `*.onrender.com`, we use a "double-submit cookie" pattern where the CSRF token is also returned in the response body, since JavaScript can't read cookies across different registrable domains.
+
+---
+
+## 1. Architecture at a glance
 
 ```
                                    ┌──────────────────────┐
-                                   │    React storefront  │   port 3001
+                                   │   Storefront SPA     │   Vercel
                                    │      (client/)       │
                                    └──────────┬───────────┘
                                               │  fetch (credentials: 'include')
                                               ▼
 ┌──────────────────────┐            ┌──────────────────────┐
-│  React auth client   │            │     API Gateway      │   port 7000
+│   Auth SPA           │            │     API Gateway      │   Render
 │   (Auth/client/)     │            │    (APIGateway/)     │
 └──────────┬───────────┘            └──────┬───────┬───────┘
-           │ port 3002                     │       │
-           │                               │       │
+           │ Vercel                        │       │
            ▼                               ▼       ▼
 ┌──────────────────────┐    ┌──────────────────────┐    ┌──────────────────────┐
 │     Auth server      │    │    Users service     │    │   Amazon service     │
 │   (Auth/server/)     │    │      (Users/)        │    │     (Amazon/)        │
-│       port 5000      │    │      port 7001       │    │     port 8000        │
+│   Node + Express     │    │   Node + Express     │    │   Node + Express     │
 └──────────┬───────────┘    └──────────┬───────────┘    └──────────┬───────────┘
-           │                           │                           │
            │                           │                ┌──────────┴───────────┐
            │                           │                │   Walmart service    │
            │                           │                │     (Walmart/)       │
-           │                           │                │     port 8001        │
+           │                           │                │   Python + Flask     │
            │                           │                └──────────┬───────────┘
            │                           │                           │
            └───────────────────────────┴───────────────────────────┘
                                        │
                                        ▼
-                               ┌──────────────┐
-                               │   MongoDB    │
-                               └──────────────┘
+                          ┌──────────────────────────┐
+                          │  MongoDB Atlas (4 DBs)   │
+                          │ trendytreasures │ auth │ │
+                          │  amazon    │ walmart     │
+                          └──────────────────────────┘
 ```
 
-There are **three distinct authentication flows** in the system — see [§5 Authentication flows](#5-authentication-flows).
+### The seven services
 
-### Microservices features
-
-| Feature | Where | What |
+| Service | Stack | What it does |
 |---|---|---|
-| API versioning | All gateway routes | `/api/v1/*` — version baked into URL so v2 can ship without breaking clients |
-| Health endpoints | Every backend service | `GET /health` returns `{ status, service, uptime, mongoState }` for liveness checks |
-| Correlation IDs | Gateway → all services | `x-request-id` header (UUID, generated at gateway, propagated downstream, logged in every service) |
-| Rate limiting | Gateway | 120 req/min general, 30 req/15min on auth routes — env-tunable |
-| Token injection | Gateway → Amazon/Walmart | `productsauthorization` header injected from MongoDB `creds` collection (60s cache) |
-| Refresh-token rotation | Gateway → Users → all clients | 15-min access tokens auto-refreshed via 7-day refresh tokens; concurrent-burst dedup |
-| Containerization | All 5 backends | `Dockerfile` per service + root `docker-compose.yml` to bring everything up with one command |
+| `client/` | React 18 | Main storefront and admin pages |
+| `Auth/client/` | React 18 | Developer-facing pages for managing API credentials |
+| `APIGateway/` | Node + Express | The only public entry point for the storefront's API calls. Injects provider tokens; refreshes them when they expire. |
+| `Users/` | Node + Express + Mongoose | Shopper and admin accounts, cart, checkout records, price alerts, AI features |
+| `Auth/server/` | Node + Express + EJS | Developer accounts, API credential lifecycle, issuing provider JWTs |
+| `Amazon/` | Node + Express + Stripe | Amazon-branded mock provider — products, checkout, orders |
+| `Walmart/` | Python + Flask + Stripe + MongoEngine | Walmart-branded mock provider — same idea, different language |
+
+### Things every service shares
+
+| Feature | Where | What it does |
+|---|---|---|
+| API versioning | All gateway routes | All endpoints sit under `/api/v1/*`, so we can ship a v2 later without breaking old clients |
+| Health endpoint | Every service | `GET /health` returns service name, uptime, and DB connection state |
+| Request IDs | Gateway → all services | Every request gets an `x-request-id` UUID that shows up in every log line, so you can trace a single request across all services |
+| Rate limiting | Each service | 120 requests/minute on most routes; tighter limits on login (30 / 15 min) and payments (20/min) |
+| Refresh tokens | Users + Auth | Short-lived access tokens (1 hour) + 7-day refresh tokens |
+| Provider-token caching | Gateway | 60-second in-memory cache so we don't read the DB on every product request |
+| Helmet, CSRF, CORS | Every backend | Security headers, double-submit CSRF protection, strict origin allowlists |
+| Docker support | All backends | Each service has its own `Dockerfile`; a top-level `docker-compose.yml` runs them all |
 
 ---
 
-## 2. Repository layout
+## 2. Folder layout
 
 ```
 E_Commerce_Prod/
-├── APIGateway/                # Central HTTP gateway (port 7000)
-│   ├── app.js                 # Proxy config + product-token injection
-│   ├── Models/
-│   │   ├── creds.js           # Mirror of Users.creds collection
-│   │   └── dbConnection.js
-│   └── package.json
-│
+├── APIGateway/          The gateway — port 7000
+├── Users/               Shopper and admin domain — port 7001
 ├── Auth/
-│   ├── server/                # Authorization server for client apps (port 5000)
-│   │   ├── app.js
-│   │   ├── Controllers/
-│   │   │   ├── ClientLoginController.js          # Issues authToken cookie
-│   │   │   ├── OAuthLoginController.js           # OAuth-style redirect step
-│   │   │   ├── ClientRegisterController.js
-│   │   │   ├── OAuthLoginPageController.js       # Server-rendered EJS login
-│   │   │   ├── ClientAPIDetailsController.js
-│   │   │   ├── ClientAuthorizationController.js  # Mints product API access tokens
-│   │   │   └── SessionController.js              # /me, /logout
-│   │   ├── Middlewares/
-│   │   │   ├── verifyToken.js          # Reads authToken cookie
-│   │   │   └── clientCredsValidation.js
-│   │   ├── Models/
-│   │   │   ├── Client.js               # Client-app accounts
-│   │   │   └── Credential.js           # Issued API credentials
-│   │   ├── Routes/router.js
-│   │   ├── Services/
-│   │   │   ├── CreateCredentialService.js
-│   │   │   └── GetCredentialsService.js
-│   │   ├── Views/login.ejs             # Used by OAuthLoginPageController
-│   │   ├── utils/
-│   │   │   ├── cookieOptions.js
-│   │   │   └── generateUniqueIdentifiers.js
-│   │   └── .env.example
-│   │
-│   └── client/                # React app for client-app developers (port 3002)
-│       ├── src/
-│       │   ├── components/    # AuthLogin, AuthRegistration, AuthDashboard,
-│       │   │                  # AuthCredentials, AuthCredDetails
-│       │   ├── RefreshHandler.js
-│       │   ├── App.js
-│       │   └── utils.js
-│       └── .env.example
-│
-├── Users/                     # User/admin/cart/order service (port 7001)
-│   ├── app.js
-│   ├── Controllers/
-│   │   ├── AuthController.js           # signup, login (sets pendingAuth cookie)
-│   │   ├── LoginAdmin.js               # Admin login (sets adminToken cookie)
-│   │   ├── RegisterAdmin.js
-│   │   ├── SessionController.js        # /me, /logout for users + admins
-│   │   ├── UserController.js           # Admin: list/delete users
-│   │   ├── UserAccountController.js    # Self-delete account
-│   │   ├── CartController.js
-│   │   ├── OrderController.js
-│   │   ├── AddressController.js
-│   │   ├── clientData.js               # Stores client app details for admin
-│   │   ├── getCreds.js                 # Lists configured product API creds
-│   │   └── token.js                    # Returns access_token by client_id
-│   ├── Middlewares/
-│   │   ├── Authorization.js            # Cookie-aware JWT + Google verify
-│   │   ├── verifyOtp.js                # Reads pendingAuth → sets userToken
-│   │   ├── adminCredsValidation.js
-│   │   ├── userCredsValidation.js
-│   │   ├── googleAuth.js               # Google OAuth2 helpers
-│   │   ├── auth.js                     # Receives access tokens from Auth/server callback
-│   │   └── authenticate.js             # Forwards to Auth/server /authorize
-│   ├── Models/
-│   │   ├── User.js                     # Customers + admins (single collection)
-│   │   ├── Cart.js
-│   │   ├── Order.js
-│   │   ├── Address.js
-│   │   ├── otp.js                      # OTP storage (TTL)
-│   │   ├── Client.js                   # Cached client-app handle from Auth/server
-│   │   ├── Credential.js               # Issued product API access tokens
-│   │   └── db.js
-│   ├── Routes/                         # AuthRouter, AdminRouter, AccountRouter,
-│   │                                   # CartRouter, CheckoutIntentRouter,
-│   │                                   # PasswordResetRouter, GoogleAuthRouter
-│   ├── Services/
-│   │   ├── OtpService.js
-│   │   ├── MailService.js
-│   │   └── ForgotPasswordService.js
-│   ├── utils/cookieOptions.js
-│   └── .env.example
-│
-├── Amazon/                    # Amazon-branded products (port 8000)
-│   ├── app.js
-│   ├── Controllers/ProductController.js
-│   ├── Middlewares/Authorization.js   # Verifies productsauthorization JWT
-│   ├── Models/
-│   │   ├── Product.js
-│   │   └── dbConnection.js
-│   ├── Routes/ProductRouter.js
-│   └── .env.example
-│
-├── Walmart/                   # Walmart-branded products (port 8001, Python/Flask)
-│   ├── app.py
-│   ├── Controllers/products_controller.py
-│   ├── Middlewares/authorization.py
-│   ├── Models/
-│   │   ├── product_model.py
-│   │   └── db_connection.py
-│   ├── Routes/Router.py
-│   └── .env.example
-│
-├── client/                    # Storefront React app (port 3001)
-│   ├── src/
-│   │   ├── components/        # 19 components — see §6.7
-│   │   ├── RefreshHandler.js
-│   │   ├── App.js
-│   │   ├── index.js
-│   │   └── utils.js           # API_BASE, fetchCurrentUser, etc.
-│   └── .env.example
-│
-└── README.md                  # This file
+│   ├── server/          Developer + provider credential server — port 5000
+│   └── client/          Developer SPA — port 3002
+├── Amazon/              Provider service — port 8000
+├── Walmart/             Provider service (Python) — port 8001
+├── client/              Storefront SPA — port 3001
+├── docs/                Detailed documentation
+│   ├── ARCHITECTURE.md     System diagrams and per-flow walkthroughs
+│   ├── SECURITY.md         Threat model and OWASP control matrix
+│   ├── API.md              Every endpoint with curl examples
+│   └── DATA_MODEL.md       Database schemas and indexes
+├── docker-compose.yml   Spins up all backends locally
+├── genkeys.js           Helper to generate the gateway/Auth RSA keypair
+└── README.md            This file
 ```
 
 ---
 
-## 3. Tech stack
+## 3. Technology used
 
-| Layer | Technology |
+| Layer | What we use |
 |---|---|
-| Frontend | React 18 (Create React App), React Router v6, react-toastify |
-| Backend (services) | Node.js, Express 4, Mongoose 8 |
-| Backend (one service) | Python 3, Flask, flask-cors |
-| Gateway | Express + http-proxy-middleware v3 |
-| Database | MongoDB |
-| Auth | JWT (`jsonwebtoken`), bcryptjs, Google OAuth2 |
-| Mail | Brevo (HTTPS API — Render's free tier blocks outbound SMTP; Brevo's single-sender verification avoids needing a custom domain) |
-| Security | helmet, express-rate-limit (Auth/server only), httpOnly cookies |
+| Frontend | React 18, React Router v6, react-toastify, Tailwind |
+| Backends (5 services) | Node.js 20, Express 4 |
+| Backend (1 service) | Python 3.12, Flask, MongoEngine |
+| Gateway | Express + `http-proxy-middleware` v3 |
+| Database | MongoDB Atlas — one database per service |
+| Auth | JWTs (`jsonwebtoken`, `pyjwt`), bcrypt for passwords, RS256 keypair for gateway↔Auth, optional Google OAuth2 |
+| Payments | Stripe (test mode), server-side amount verification |
+| Email | Brevo's HTTPS API (Render's free tier blocks regular SMTP) |
+| AI | OpenAI's `gpt-4o-mini` for price advice and product Q&A |
+| Security | `helmet`, `express-rate-limit`, double-submit CSRF, httpOnly cookies, CSP form-action allowlist |
 
 ---
 
-## 4. Data model
+## 4. How logins work
 
-The system uses a single MongoDB **instance**, but each domain owns its own database — services do not share collections.
+There are three separate login systems, each with its own threat model.
 
-| Database | Owned by | What lives there |
-|---|---|---|
-| `ecommerce` | TrendyTreasures (Users + APIGateway) | users, carts, OTPs, checkout intents, OAuth handshake cache, issued product-API tokens (`creds`) |
-| `auth` | Auth/server | client-app developer accounts, registered API credentials |
-| `amazon` | Amazon service | products, orders, guestCustomers, addresses, payments |
-| `walmart` | Walmart service | products, orders, guestCustomers, addresses, payments |
+| Who | Cookies | Access token lasts | Refresh token lasts | How sessions are killed |
+|---|---|---|---|---|
+| Shopper | `userToken` + `userRefreshToken` | 1 hour | 7 days | Wait for TTL |
+| Admin | `adminToken` + `adminRefreshToken` | 1 hour | 7 days | Wait for TTL |
+| Developer | `authToken` + `authRefreshToken` | 15 min | 7 days | `tokenVersion` bump on password change |
+| Provider (server-only) | `productsauthorization` header — no cookies | 1 hour | RS256 assertion-driven refresh | Rotating `active_jti` on re-authorize |
 
-Cross-service reads happen over HTTP (e.g., the Amazon checkout page calls TT's `/checkout/intent/:ref` to read items, then notifies TT via `/checkout/intent/:ref/complete`). The only direct cross-service DB reach is the gateway looking up `creds` in the `ecommerce` DB — that's intentional, since `creds` are issued tokens the gateway needs to inject on every product request.
+**Cookie settings:** in production, all cookies are `HttpOnly`, `SameSite=None`, and `Secure` (the SPAs and APIs are on different domains). In dev, we use `SameSite=Lax`.
 
-### Users service collections
+**CSRF:** we use a double-submit cookie pattern. The server returns the CSRF token in both a cookie and the response body, because cross-domain browsers can't read the cookie via `document.cookie`.
 
-| Collection | Purpose | Schema (key fields) |
-|---|---|---|
-| `users` | All user accounts (customers + admins) | `name`, `email` (unique), `password` (bcrypt; optional for Google users), `role` (`Customer`/`Admin`), `isGoogleUser` |
-| `addresses` | Shipping addresses, one per user | `userId` (email, unique), `fullName`, `phoneNumber`, `address`, `city`, `province`, `postalCode`, `countryRegion` |
-| `carts` | Cart line items, one row per product | `userId`, `productName`, `productDescription`, `productImageUrl`, `productPrice`, `productQuantity`, `productSoldBy` |
-| `orders` | Placed orders | `orderNumber` (unique), `userId` (unique), `address_id` (refs addresses), `items_id` (refs carts), `total`, `status`, `createdAt` |
-| `otps` | Short-lived OTP codes for 2FA + password reset | `email`, `otp`, `createdAt` (TTL) |
-| `clients` | Cached client-app handle returned from Auth/server during admin authorization | `client_id`, `client_secret`, `redirect_uri` |
-| `creds` | Issued product API access tokens (the JWTs the gateway injects) | `client_id` (unique), `api_name` (unique), `api_url`, `access_token` (unique) |
-
-### Auth/server collections
-
-| Collection | Purpose | Schema |
-|---|---|---|
-| `clients` | Client-app developer accounts (separate from user `clients`) | `name`, `username` (unique), `password` |
-| `credentials` | API credentials registered by a client-app developer | `client` (refs clients), `api_name`, `api_url`, `redirect_uri`, `client_id`, `client_secret`, `secret_key`, `creation_date` |
-
-> **Note:** Auth/server connects to a **separate database (`auth`)** from the storefront's `ecommerce` database, so the two `clients` collections (different shapes) live in different DBs and cannot collide. The Users service's local copy is named `temp_clients` (TTL 10 min) — it's a short-lived OAuth handshake cache, not a duplicate of Auth's source-of-truth `clients`.
-
-### Amazon and Walmart services
-
-Each owns a `products` collection with: `name`, `description`, `price`, `category`, `brand`, `features` (array), `soldBy`, `imageUrl`, `inventory: { stock, supplier, lastUpdated }`, `inStock`, `isActive`, `createdAt`, `updatedAt`. There is **no separate Inventory service** — inventory is a sub-document on each product (despite what older copies of this README claimed).
+**Service-to-service:**
+- **Gateway → Auth (token refresh):** uses an RS256-signed assertion. The gateway has the private key; Auth has only the public key. So Auth can verify but can't sign.
+- **Everything else internal** (Auth ↔ Users, providers ↔ gateway, providers ↔ Auth): uses an `x-internal-auth` header carrying a shared secret. If the env var is missing, the request is rejected — never accepted by default.
 
 ---
 
-## 5. Authentication flows
+## 5. Main user flows
 
-The system has three independent auth flows. All of them use **httpOnly cookies** issued and consumed by the server — the React clients never read or write tokens to localStorage or cookies directly.
+### 5.1 Signing up (two-step with email OTP)
 
-Every login flow issues **two cookies**: a short-lived **access token** (15 minutes) and a long-lived **refresh token** (7 days). When an access token expires, the React client's fetch wrapper automatically calls `/auth/refresh`, the server rotates both tokens (refresh-token rotation), and the original request is retried — all transparent to the user. The user only has to log in again if the refresh token itself expires (after 7 days of inactivity) or fails verification.
+`POST /auth/signup` checks the form, sends a 4-digit code to the user's email, and sets a temporary `pendingSignup` cookie. **No user record is created yet.** Then `POST /auth/signup/verify` checks the code and creates the account. If the user abandons signup, nothing gets stored — the OTP just expires after 120 seconds.
 
-| Cookie | TTL | Set by | Used by |
-|---|---|---|---|
-| `userToken` | 15 min | verifyOtp, Google callback, /auth/refresh | All `/api/user/*` routes (except admin) |
-| `userRefreshToken` | 7 days | verifyOtp, Google callback, /auth/refresh | `POST /api/user/auth/refresh` only |
-| `adminToken` | 15 min | LoginAdmin, /auth/refresh | All `/api/user/admin/*` routes |
-| `adminRefreshToken` | 7 days | LoginAdmin, /auth/refresh | `POST /api/user/auth/refresh` only |
-| `authToken` | 15 min | Auth/server LoginClient, /auth/refresh | All Auth/server protected routes |
-| `authRefreshToken` | 7 days | Auth/server LoginClient, /auth/refresh | `POST /auth/refresh` only |
-| `pendingAuth` | 10 min | login (after password OK) | verifyOtp |
-| `recoveryGrant` | 10 min | password-reset verifyOtp | resetPassword |
+### 5.2 An admin authorizes a provider's API
 
-### 5.1 End-customer login (email + password + OTP)
+This is the flow that lets TrendyTreasures actually call the provider product APIs.
 
-```
-Browser                        Users service (gateway → :7001)
-   │                                  │
-   │  POST /api/user/auth/login       │
-   │  { email, password }             │
-   │ ────────────────────────────────►│
-   │                                  │ verify password
-   │                                  │ generate OTP, save to otps collection
-   │                                  │ send OTP email via Brevo HTTPS API
-   │                                  │ sign pendingAuth JWT (10 min, contains email/name)
-   │  Set-Cookie: pendingAuth=…       │
-   │ ◄────────────────────────────────│
-   │                                  │
-   │  POST /api/user/auth/verifyotp   │
-   │  { otp }                         │
-   │ ────────────────────────────────►│
-   │                                  │ read pendingAuth cookie → email
-   │                                  │ verify OTP against otps collection
-   │                                  │ sign userToken JWT (7 days)
-   │  Set-Cookie: userToken=…         │
-   │  Clear-Cookie: pendingAuth       │
-   │ ◄────────────────────────────────│
-   │                                  │
-   │  GET /api/user/auth/me           │
-   │  (cookie sent automatically)     │
-   │ ────────────────────────────────►│
-   │                                  │ Authorization middleware verifies cookie
-   │  { user: { name, email, role } } │
-   │ ◄────────────────────────────────│
-```
+1. The developer creates a credential in the Auth SPA. They get back a `client_id`, `client_secret`, and `redirect_uri`.
+2. The admin enters those values into `/admin/auth/request`. The Users service saves them temporarily in `temp_clients` (auto-deleted after 10 minutes).
+3. The admin is redirected to Auth's consent page (rendered with EJS) and types the developer's username and password.
+4. Auth verifies the credentials, signs a provider JWT, stamps the credential with `active_jti`, and POSTs `{ creds, accessToken }` to the redirect URL. That URL is a Users endpoint protected by `x-internal-auth`.
+5. Users saves the token into the `creds` collection. From there, the gateway reads it on every product request (with a 60-second cache).
 
-### 5.2 Admin login
+Full sequence diagram in [`docs/ARCHITECTURE.md` section 3.2](docs/ARCHITECTURE.md#32-admin--auth-provider-authorization-the-oauth-style-flow).
 
-Identical to 5.1 but at `POST /api/user/admin/login` and **no OTP step** — issues `adminToken` cookie directly on password verification (7-day expiry). Subsequent admin endpoints check `req.cookies.adminToken` via the same `Authorization.js` middleware.
+### 5.3 Loading products (with a transparent token refresh)
 
-### 5.3 Google sign-in
+The gateway keeps provider tokens — the browser never sees them. If a provider rejects the token because it expired, here's what happens automatically:
 
-```
-Browser                Users service                    Google
-   │                        │                              │
-   │ click "Sign in with    │                              │
-   │  Google"               │                              │
-   │ form GET /auth/google  │                              │
-   │ ──────────────────────►│                              │
-   │                        │ redirect 302                 │
-   │ ──────────────────────────────────────────────────────►│
-   │                        │                              │
-   │ ◄─────────────────────────── consent screen ──────────│
-   │                                                       │
-   │ redirect with ?code=…  │                              │
-   │ ──────────────────────►│ /auth/google/callback        │
-   │                        │ exchange code → access_token │
-   │                        │ ──────────────────────────►  │
-   │                        │ ◄────────────────────────── │
-   │                        │ upsert User (isGoogleUser)   │
-   │  Set-Cookie: userToken=ya29.* (the Google access tok) │
-   │  Set-Cookie: userInfo={name,email}                    │
-   │  302 → /auth/google/callback (React route)            │
-   │ ◄──────────────────────│                              │
-   │                                                       │
-   │  GET /api/user/authenticate                           │
-   │ ──────────────────────►│ reads userInfo cookie        │
-   │  { user: {name,email}}  ◄────────────────────────────│
-   │  navigate to /home                                   │
-```
+1. The gateway grabs a lock for this `apiName` so multiple expiring requests don't all refresh at once.
+2. It signs a short-lived RS256 assertion with its private key.
+3. It calls `POST /auth/token/refresh` on the Auth server. Auth verifies the assertion with the public key, mints a new provider JWT, and rotates `active_jti`.
+4. The gateway saves the new token, clears its 60-second cache, and retries the original product request.
 
-The `Authorization.js` middleware handles two token formats: anything starting with `ya29.*` is verified by hitting Google's `tokeninfo` endpoint; anything else is verified as a local JWT.
+From the shopper's point of view, the request just worked.
 
-### 5.4 Refresh-token rotation (every flow)
+### 5.4 Cart → checkout → provider
 
-```
-Browser                                       Users service
-   │                                                │
-   │ GET /api/user/cart/get/foo@x.com               │
-   │ (userToken cookie attached)                    │
-   │ ───────────────────────────────────────────►   │
-   │                                                │ Authorization mw:
-   │                                                │   verify userToken JWT
-   │                                                │   → expired (15 min passed)
-   │ 401 Unauthorized                               │
-   │ ◄───────────────────────────────────────────   │
-   │                                                │
-   │ apiFetch detects 401, calls:                   │
-   │ POST /api/user/auth/refresh                    │
-   │ (userRefreshToken cookie attached)             │
-   │ ───────────────────────────────────────────►   │
-   │                                                │ verify userRefreshToken
-   │                                                │ → still valid
-   │                                                │ sign new access (15 min)
-   │                                                │ sign new refresh (7 days)  [rotation]
-   │ Set-Cookie: userToken=…                        │
-   │ Set-Cookie: userRefreshToken=…                 │
-   │ 200 OK                                         │
-   │ ◄───────────────────────────────────────────   │
-   │                                                │
-   │ apiFetch retries the original request          │
-   │ GET /api/user/cart/get/foo@x.com               │
-   │ ───────────────────────────────────────────►   │
-   │ 200 { cartItems: [...] }                       │
-   │ ◄───────────────────────────────────────────   │
-```
+1. The storefront groups cart items by which provider sells them.
+2. It calls `POST /checkout/intent`, which creates a record with a `referralCode` (looks like `TT-<16 hex>`). This record has **no PII** — just product IDs and quantities.
+3. The browser navigates to the provider's checkout page, passing `?ref=<code>`.
+4. The provider checkout page calls back through the gateway to read the intent. The referral code is the capability — anyone with the code can read the intent.
+5. The provider creates a Stripe PaymentIntent **using the items the gateway returned**, not anything from the browser.
+6. The user pays via Stripe.js.
+7. The provider asks Stripe to confirm the payment, saves the order locally.
+8. The provider calls `/checkout/intent/:code/complete` on Users (with `x-internal-auth`).
+9. Users marks the intent as completed and removes those items from the buyer's cart.
 
-The same `/auth/refresh` endpoint handles both `userRefreshToken` and `adminRefreshToken` — it inspects which cookie is present and rotates accordingly. Concurrent 401s share a single in-flight refresh promise so we only call `/refresh` once per burst, not once per failing request.
+### 5.5 Price drop alerts
 
-If the refresh token itself is expired or invalid, both cookies are cleared and the client receives a 401 from the refresh call, which propagates as an unauthenticated state — the user must log in again.
+When someone loads a product detail page, the gateway also snapshots the current price (but only if the last snapshot is more than 6 hours old). If a snapshot crosses an alert threshold and the cooldown has passed, the gateway tells Users to email the buyer via Brevo.
 
-**Refresh-token rotation** (issuing a new refresh token on each refresh) limits the replay window if a refresh token is somehow stolen: the attacker has a token that's only valid until the next legitimate refresh, after which the user's actions invalidate the attacker's copy.
+### 5.6 AI features
 
-### 5.5 Client-app authorization (Auth/server)
-
-This is a separate OAuth-inspired flow for **third-party client apps** (i.e., the simulated "marketplaces"). It does NOT involve end users.
-
-1. A developer registers at `Auth/client/` (port 3002) → `POST /auth/register` on `Auth/server/`.
-2. They log in → `Set-Cookie: authToken` (1 hour expiry).
-3. From the AuthDashboard, they create a credential (`POST /auth/credentials`) — this returns a `client_id`, `client_secret`, `secret_key`, and `redirect_uri`.
-4. Separately, an **admin** of TrendyTreasures (logged in via §5.2) goes to `/admin/auth/request` and submits the `apiName`, `clientId`, `clientSecret`, `redirectUri`.
-5. The admin's browser is then redirected to `Auth/server/auth/client/login`, which renders an EJS form. After confirming, Auth/server signs an access-token JWT (`expiresIn: '30d'`) using the `secret_key` set in step 3, and **POSTs it to the redirectUri**.
-6. The redirectUri is `Users/admin/auth/callback` → controller `Middlewares/auth.js` saves the access_token to the `creds` collection keyed by `api_name`.
-7. The APIGateway then injects this access_token as the `productsauthorization` header for all `/api/amazon/products/*` and `/api/walmart/products/*` requests (60-second cache). Browsers never see it.
+- `GET /ai/price-advice/:provider/:productId` — uses 30 days of price snapshots to recommend "buy now" or "wait." Cached for 6 hours per product.
+- `POST /ai/product-qa` — answers questions about a specific product using its metadata. Question and product description lengths are capped before being sent to OpenAI.
 
 ---
 
-## 6. Per-service deep dive
+## 6. Database layout
 
-### 6.1 APIGateway (port 7000)
+Every service owns its own MongoDB database. The gateway shares the `trendytreasures` database with Users for shared data like `creds`, `price_snapshots`, and `price_alerts`.
 
-**Single responsibility:** receive every browser request, route it to the right backend service, and inject the product-API access token when proxying to Amazon/Walmart.
-
-Key behaviors:
-- `/api/user/*` → `USERS_SERVICE_URL` (default `http://localhost:7001`)
-- `/api/amazon/products/*` → `AMAZON_SERVICE_URL` + `productsauthorization` header injected from `creds` collection (cached 60 s)
-- `/api/walmart/products/*` → `WALMART_SERVICE_URL` + same header injection
-- CORS: env-driven allowlist with `credentials: true`
-- Sets `x-original-url` header so the downstream Authorization middleware can verify the request URL against the JWT's `api_url` claim
-
-### 6.2 Users service (port 7001)
-
-**The largest service.** Owns customer accounts, admin accounts, OTP-based 2FA, Google OAuth, address book, cart, orders, and acts as the bridge between admins and Auth/server.
-
-Routers mounted on the root in `Users/app.js`:
-| Mount | File | Purpose |
+| Database | Who owns it | Main collections |
 |---|---|---|
-| `/` | `GoogleAuthRouter.js` | Google OAuth init + callback + `/authenticate` |
-| `/auth` | `AuthRouter.js` | signup, login, verifyotp, me, logout |
-| `/admin` | `AdminRouter.js` | admin login/register/CRUD + the auth/token bridge |
-| `/recovery` | `PasswordResetRouter.js` | forgot/verify/reset password |
-| `/account` | `AccountRouter.js` | self-delete account |
-| `/cart` | `CartRouter.js` | get/add/update/remove cart items |
-| `/checkout` | `CheckoutIntentRouter.js` | create / read / complete checkout intents (referrals) |
+| `trendytreasures` | Users (+ Gateway) | `users`, `cart`, `checkoutIntent`, `otp`, `temp_clients`, `creds`, `price_alerts`, `price_snapshots` |
+| `auth` | Auth server | `clients` (developers), `credentials`, `authOtp` |
+| `amazon` | Amazon service | `products`, `orders`, `payments`, `guestCustomers`, `addresses` |
+| `walmart` | Walmart service | Same shape, with `Walmart_*` collection names |
 
-All non-public routes go through `Middlewares/Authorization.js`, which:
-1. First checks `req.cookies.userToken` then `req.cookies.adminToken` then falls back to the `Authorization` header.
-2. If the token starts with `ya29.*`, verifies it against Google's tokeninfo endpoint (matching `aud` against `GOOGLE_CLIENT_ID`).
-3. Otherwise verifies it as a JWT signed with `JWT_SECRET`.
+> **Note on names:** in the code and connection strings, the first database is still called `ecommerce`. The docs call it `trendytreasures` because that matches the product name. They refer to the same physical database.
 
-### 6.3 Auth/server (port 5000)
+### A few design notes
 
-**Authorization server** for the client-app developer flow. Uses helmet, rate-limiting (200 req / 15 min), and EJS for one server-rendered page (the OAuth-style consent screen at `GET /auth/client/login`).
+- **`users`** stores both shoppers and admins. The `role` field tells them apart. The `email` field has a unique index.
+- **`credentials.client_secret_hash`** is hidden by Mongoose's `select: false` so it never accidentally appears in API responses. `active_jti` is what we update when revoking tokens.
+- **`otp` (TTL 120s)** and **`temp_clients` (TTL 600s)** clean themselves up using MongoDB's built-in TTL feature.
+- **`checkoutIntent`** intentionally has no PII. The provider only sees product IDs and quantities. The `referralCode` is what links it to the order on the provider's side.
+- **`creds`** has a unique compound index on `{client_id, api_name}` because the gateway reads it on every product request.
 
-Routes:
-| Method | Path | Auth | Purpose |
-|---|---|---|---|
-| POST | `/auth/register` | none | Register a client-app developer |
-| POST | `/auth/login` | none | Log in, sets `authToken` + `authRefreshToken` cookies |
-| POST | `/auth/refresh` | refresh cookie | Rotate access + refresh tokens |
-| GET | `/auth/me` | cookie | Current developer info |
-| POST | `/auth/logout` | none | Clear `authToken` cookie |
-| POST | `/auth/credentials` | cookie | Create a new API credential |
-| GET | `/auth/dashboard` | cookie | List developer's credentials |
-| GET | `/auth/creds/apiinfo/:id` | cookie | Get one credential's full details |
-| GET | `/auth/client/login` | session | Render the EJS consent page |
-| POST | `/auth/client/login` | none | Confirm consent, redirect with username |
-| POST | `/auth/authorize` | none | Mint the 30-day product API access token |
-| POST | `/auth/token` | cookie | Internal: client_id → access token |
-
-### 6.4 Amazon service (port 8000)
-
-Tiny CRUD service backed by the `Products` collection. All routes are gated by `Middlewares/Authorization.js`, which verifies the `productsauthorization` header as a JWT signed with `SECRET` (Walmart reads the same env var under the same name) and confirms the request URL contains the JWT's `api_url` claim (defense against token reuse across services).
-
-Endpoints (under gateway `/api/amazon/products`):
-- `GET /get` — list all products
-- `GET /:productId` — single product
-- `POST /add` — create product (used by seed scripts/admin tools)
-
-### 6.5 Walmart service (port 8001)
-
-Functionally identical to Amazon but written in Flask + Python. Same `productsauthorization` JWT validation logic in `Middlewares/authorization.py`.
-
-### 6.6 Auth/client (port 3002)
-
-5-page React app for the client-app developer flow:
-- `AuthRegistration` — sign up
-- `AuthLogin` — log in (sets cookie)
-- `AuthDashboard` — list credentials
-- `AuthCredentials` — create new credential
-- `AuthCredDetails` — view full credential (client_id, secret, etc.)
-
-Auth state is loaded by calling `GET /auth/me` on mount via `RefreshHandler.js`.
-
-### 6.7 Storefront client (port 3001)
-
-19 React components covering the full customer + admin UX:
-
-| Customer | Admin | Auth flow |
-|---|---|---|
-| Signup, Signin | AdminLogin, AdminRegistration | ForgotPassword |
-| Home (product listing) | AdminDashboard | VerifyOtp (recovery) |
-| ProductDetails | UserManagement | ResetPassword |
-| Cart | AuthManagement | TwoFactorAuthentication (login OTP) |
-| Checkout | AuthRequest | GoogleCallBack |
-| Address | ProtectedRoutes (renders credential table) | ClientCallBack |
-
-Cross-cutting helpers in `client/src/utils.js`:
-- `API_BASE`, `AMAZON_API`, `WALMART_API`, `AUTH_SERVER_URL`, `CLIENT_URL` — env-driven URL constants
-- `apiFetch(path, options)` — wraps `fetch` with `credentials: 'include'` + **auto-refresh on 401** (calls `/auth/refresh`, retries once)
-- `amazonFetch(path, options)`, `walmartFetch(path, options)` — same wrapper for product endpoints
-- `fetchCurrentUser()`, `fetchCurrentAdmin()` — read cookie-backed identity
-- `logoutUser()`, `logoutAdmin()` — POST to the relevant logout endpoint
-- `handleSuccess`, `handleError` — toast notifications
-
-**Always use these helpers — never call `fetch` directly.** Direct `fetch` calls bypass the refresh-token retry, so users would hit forced logouts every 15 minutes. If you add a new component that talks to the gateway, import the relevant helper from `utils.js`.
+Full schemas and indexes are in [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
 
 ---
 
-## 7. Environment variables
+## 7. Notes on each service
 
-Every service ships a `.env.example`. Copy it to `.env` and fill in real values.
+### 7.1 API Gateway (`APIGateway/`)
 
-| Service | Required env vars |
+- Proxies `/api/v1/user/*` to Users; `/api/v1/amazon/products*` and `/api/v1/walmart/products*` to the providers (after injecting the provider JWT).
+- Refuses to start in production if any required env var is missing.
+- Keeps a per-`apiName` map of in-flight refresh promises so a hundred concurrent requests share one refresh call.
+- Saves price snapshots after each product-detail proxy response.
+
+### 7.2 Users service (`Users/`)
+
+- Routes are grouped under `/auth`, `/admin`, `/cart`, `/checkout`, `/account`, `/recovery`, `/prices`, `/ai`.
+- The auth middleware tries `userToken` first, then `adminToken`, then the `Authorization` header. It also accepts Google `ya29.*` access tokens.
+- Internal endpoints (`/internal/*`, `/admin/auth/callback`, `/checkout/intent/:code/complete`) skip the CSRF check because there's no session cookie on those calls.
+- JSON body size capped at 32KB.
+
+### 7.3 Auth server (`Auth/server/`)
+
+- Renders an EJS consent page at `/auth/client/login` for the OAuth-style authorize flow.
+- The CSP `form-action` directive needs the storefront origin in `FORM_ACTION_ORIGINS` for cross-origin form submission to work.
+- Has the most extensive automated tests (Jest + Supertest): signup/login/refresh, CSRF, `tokenVersion` invalidation, fail-closed introspection, OAuth state validation, body-size caps.
+- `/auth/token/refresh` only accepts requests signed with an RS256 assertion from the gateway.
+
+### 7.4 Amazon and Walmart providers
+
+These are functionally identical — same contracts, different languages:
+
+- Product routes (`/get`, `/:id`) require a `productsauthorization` JWT verified locally with `SECRET` (same value as Auth's `JWT_PROVIDER_SECRET`).
+- The JWT's `api_url` claim must match the request's `x-original-url` header (so an Amazon token can't be used on Walmart).
+- The JWT's `jti` is checked against Auth's `/auth/token/active/:clientId` (cached 30 seconds per `clientId`).
+- The checkout pages (`/checkout`, `/confirmation`) plus `/payments/create-intent` and `/orders/place` are public-but-referral-gated, and verify Stripe payments before saving the order.
+- `/config.js` exposes only the Stripe **publishable** key, the gateway URL, and the storefront URL. The Stripe secret key stays server-side.
+
+### 7.5 Storefront client (`client/`)
+
+- The `apiFetch` wrapper handles `credentials: 'include'`, fetches a CSRF token, captures rotated tokens from response bodies, and automatically refreshes the session on a 401. **Never call `fetch` directly** — you'll skip the CSRF and refresh logic.
+- A guest cart in `localStorage` is merged into the server cart when the user logs in.
+
+### 7.6 Auth client (`Auth/client/`)
+
+Five screens: register, login, dashboard, create credential, credential details. Session state is checked with `GET /auth/me` on page load.
+
+---
+
+## 8. Security highlights
+
+| Concern | How we protect against it |
 |---|---|
-| `APIGateway/` | `PORT`, `USERS_SERVICE_URL`, `AMAZON_SERVICE_URL`, `WALMART_SERVICE_URL`, `CORS_ORIGINS`, `MONGO_CONN` |
-| `Users/` | `PORT`, `NODE_ENV`, `MONGO_CONN`, `JWT_SECRET`, `CORS_ORIGINS`, `CLIENT_URL`, `AUTH_SERVER_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `BREVO_API_KEY`, `MAIL_FROM` |
-| `Auth/server/` | `PORT`, `NODE_ENV`, `MONGO_CONN`, `JWT_SECRET`, `CORS_ORIGINS`, `BREVO_API_KEY`, `MAIL_FROM` |
-| `Amazon/` | `PORT`, `MONGO_CONN`, `CORS_ORIGINS`, `SECRET` |
-| `Walmart/` | `PORT`, `MONGO_CONN`, `CORS_ORIGINS`, `SECRET` |
-| `client/` | `REACT_APP_API_URL`, `REACT_APP_AUTH_URL`, `REACT_APP_CLIENT_URL` (build-time only) |
-| `Auth/client/` | `REACT_APP_AUTH_URL` (build-time only) |
+| Password storage | bcrypt (cost 10 for shoppers, cost 12 for developers) |
+| Session theft | `HttpOnly` cookies, `SameSite=None; Secure` in production |
+| CSRF | Double-submit cookie + `x-csrf-token` header; token also returned in response body for cross-domain SPAs |
+| Cross-provider token reuse | JWT's `api_url` claim must match the request path |
+| Stale or revoked provider tokens | Every request checks `active_jti` against Auth (cached 30s) |
+| Refresh token leak (developer side) | Changing the password bumps `tokenVersion` and invalidates all outstanding refresh tokens |
+| Payment amount tampering | Subtotal is recomputed server-side and compared to `paymentIntent.amount_received` |
+| SSRF via `redirect_uri` | We check the URL against private IP ranges, both statically and after DNS resolution |
+| Email enumeration on login | The same "Invalid credentials" response for "wrong password" and "unknown email" |
+| Email enumeration on Auth recovery | Opaque "if an account exists, we sent a link" response |
+| Brute force on login | Auth-route rate limit of 30 attempts per 15 minutes |
+| Stripe abuse | Payments rate limit of 20/minute + referral-code validation |
+| Internal endpoint impersonation | `x-internal-auth` shared secret, rejected if env var is missing |
+| Gateway → Auth impersonation | RS256 asymmetric keys — Auth verifies but can't sign |
 
-> **Cross-service constraints:**
-> - All product services and `Auth/server` must share the same provider-token signing secret because Auth/server signs the JWT and the product services verify it. Concretely: `Auth/server`'s `JWT_PROVIDER_SECRET` must equal `SECRET` in both Amazon and Walmart (two services, same env var name, same value). The historical per-credential `secret_key` field on `Auth/server/credentials` is a leftover from an earlier design — the runtime verifying middleware in `Amazon`/`Walmart` uses the env-var secret, not `secret_key`. **Plan to consolidate this** before going live.
-> - `Users` and `APIGateway` must point at the same MongoDB DB so they see the same `creds` collection.
+Known gaps and recommended fixes are documented in [`docs/SECURITY.md` section 6](docs/SECURITY.md#6-known-gaps-and-mitigations).
 
 ---
 
-## 8. Running locally
+## 9. Environment variables
 
-You need: Node.js 18+, Python 3.10+, MongoDB running locally (or a connection string to MongoDB Atlas).
+Every service has a `.env.example`. Production values are not in this repo.
 
-### Step 1 — Clone & install
+| Service | Important required variables |
+|---|---|
+| `APIGateway/` | `MONGO_CONN`, `USERS_SERVICE_URL`, `AMAZON_SERVICE_URL`, `WALMART_SERVICE_URL`, `AUTH_SERVER_URL`, `INTERNAL_AUTH_SECRET`, `GATEWAY_PRIVATE_KEY`, `GATEWAY_ISSUER`, `CORS_ORIGINS` |
+| `Users/` | `MONGO_CONN`, `JWT_SECRET`, `INTERNAL_AUTH_SECRET`, `AUTH_SERVER_URL`, `API_GATEWAY_URL`, `CLIENT_URL`, `BREVO_API_KEY`, `MAIL_FROM`, `OPENAI_API_KEY`, `CORS_ORIGINS` |
+| `Auth/server/` | `MONGO_CONN`, `JWT_SECRET` (different from Users'), `JWT_PROVIDER_SECRET`, `GATEWAY_PUBLIC_KEY`, `TRUSTED_ISSUERS`, `INTERNAL_AUTH_SECRET`, `BREVO_API_KEY`, `MAIL_FROM`, `CORS_ORIGINS`, `FORM_ACTION_ORIGINS` |
+| `Amazon/` & `Walmart/` | `MONGO_CONN`, `SECRET` (same as Auth's `JWT_PROVIDER_SECRET`), `AUTH_SERVER_URL`, `INTERNAL_AUTH_SECRET`, `TT_GATEWAY_URL`, `TRENDY_TREASURES_URL`, `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `CORS_ORIGINS` |
+| `client/` | `REACT_APP_API_URL`, `REACT_APP_AUTH_URL`, `REACT_APP_CLIENT_URL`, `REACT_APP_AMAZON_CHECKOUT_URL`, `REACT_APP_WALMART_CHECKOUT_URL` (all build-time) |
+| `Auth/client/` | `REACT_APP_AUTH_URL` (build-time) |
 
-```bash
-git clone <repo>
-cd E_Commerce_Prod
+**Which secrets must match across services:**
 
+- `JWT_PROVIDER_SECRET` (Auth) = `SECRET` (Amazon) = `SECRET` (Walmart). If they don't match, every product request fails.
+- `INTERNAL_AUTH_SECRET` must be the same on all five backends. If they don't match, internal callbacks silently fail (carts won't clear, alerts won't fire).
+- `GATEWAY_PRIVATE_KEY` lives only on the gateway; `GATEWAY_PUBLIC_KEY` lives only on Auth. Generate them with `node genkeys.js`.
+- Users' `JWT_SECRET` and Auth's `JWT_SECRET` are **two separate values** — same env var name, different domains.
+
+---
+
+## 10. Running locally
+
+### What you need
+
+- Node.js 20+, Python 3.12, MongoDB (local or Atlas)
+- Stripe test keys, a Brevo API key with a verified sender, an OpenAI key (only if you want to test AI features)
+
+### Install dependencies
+
+```powershell
 # Node services
-for svc in APIGateway Users Auth/server Amazon client Auth/client; do
-  (cd "$svc" && npm install)
-done
+cd APIGateway   ; npm install ; cd ..
+cd Users        ; npm install ; cd ..
+cd Auth\server  ; npm install ; cd ..\..
+cd Amazon       ; npm install ; cd ..
+cd client       ; npm install ; cd ..
+cd Auth\client  ; npm install ; cd ..\..
 
 # Python service
-cd Walmart
-pip install flask flask-cors pymongo python-dotenv
-cd ..
+cd Walmart      ; pip install -r requirements.txt ; cd ..
 ```
 
-### Step 2 — Configure env vars
+### Generate the gateway keypair
 
-Copy each `.env.example` to `.env` in the same directory and fill in the values. For local dev the defaults work — you only need to set:
-- `MONGO_URI` / `MONGO_CONN` (your MongoDB connection string)
-- `JWT_SECRET`, `SECRET` (used by both Amazon and Walmart) — any long random string; `SECRET` must hold the same value as Auth's `JWT_PROVIDER_SECRET`
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` (only if testing Google sign-in)
-- `BREVO_API_KEY` + `MAIL_FROM` (only if testing OTP/recovery). Sign up at https://brevo.com (free, 300/day). Verify a single sender email under Settings → Senders, then set `MAIL_FROM="Display Name <verified-email>"`. No custom domain needed.
+```powershell
+node genkeys.js
+```
 
-### Step 3 — Start everything
+Paste the **PRIVATE** key into `APIGateway/.env` as `GATEWAY_PRIVATE_KEY`. Paste the **PUBLIC** key into `Auth/server/.env` as `GATEWAY_PUBLIC_KEY`.
 
-**Option A: Docker Compose (recommended)** — one command brings up MongoDB + all 5 backends:
+### Start everything
+
+**With Docker Compose** (easier) — one command runs MongoDB and all five backends:
 
 ```powershell
 docker compose up --build
 ```
 
-This starts: `mongo`, `users`, `authserver`, `amazon`, `walmart`, `gateway`. Containers are wired together via the docker-compose internal network (services find each other by name, e.g. `http://users:7001`). Then run the React apps in separate terminals:
+Then in two more terminals:
 
 ```powershell
-cd client && npm start          # storefront on :3001
-cd Auth/client && npm start     # auth client on :3002
+cd client       ; npm start    # storefront on :3001
+cd Auth\client  ; npm start    # auth client on :3002
 ```
 
-**Option B: Run each service natively** — open seven terminals:
+**Without Docker** — open seven terminals:
 
-```bash
-cd APIGateway && node app.js     # :7000
-cd Users && node app.js          # :7001
-cd Auth/server && node app.js    # :5000
-cd Amazon && node app.js         # :8000
-cd Walmart && python app.py      # :8001
-cd client && npm start           # :3001
-cd Auth/client && npm start      # :3002
+```powershell
+cd APIGateway   ; node app.js  # :7000
+cd Users        ; node app.js  # :7001
+cd Auth\server  ; node app.js  # :5000
+cd Amazon       ; node app.js  # :8000
+cd Walmart      ; python app.py # :8001
+cd client       ; npm start    # :3001
+cd Auth\client  ; npm start    # :3002
 ```
 
-The storefront opens at `http://localhost:3001`, the Auth/client app at `http://localhost:3002`.
-
-### Step 3.5 — Verify health
-
-Once everything's running, hit the health endpoints to confirm each service is up and connected to Mongo:
+### Check that everything is up
 
 ```powershell
 curl http://localhost:7000/health    # gateway
@@ -569,83 +375,55 @@ curl http://localhost:8000/health    # amazon
 curl http://localhost:8001/health    # walmart
 ```
 
-Each returns `{ "status": "ok", "service": "...", "mongoState": 1 }` (1 = connected). If you see `mongoState: 0` or `2`, the service can't reach MongoDB — check the connection string.
-
-### Step 3.6 — Watch the correlation IDs flow
-
-Every request through the gateway gets an `x-request-id` UUID. The same ID is logged by every service the request touches. Tail the logs and you'll see:
+Each one returns `{ "status": "ok", "mongoState": 1 }`. To trace a single request across services, grep its `x-request-id`:
 
 ```
 [gateway] [a1b2c3d4-...] GET /api/v1/user/auth/me
 [users]   [a1b2c3d4-...] GET /auth/me
 ```
 
-Same ID in both. Makes debugging cross-service issues straightforward — `grep <id>` across the log stream and you have the full trace.
+### Smoke test
 
-### Step 4 — Smoke test
-
-1. Sign up at `/signup`.
-2. Log in at `/login` → expect an OTP email → enter it on `/mfauth` → land on `/home`.
-3. (If no OTP email is configured, comment out the `sendMail` step in `Users/Controllers/AuthController.js` for local testing.)
-4. To see products, an admin must have completed the client-app authorization flow (§5.4). Skip this for first-run by manually inserting documents into the `creds` collection.
-
----
-
-## 9. Deploying to Render / Railway / similar PaaS
-
-Each service deploys as its own web service. Steps:
-
-1. **Create 7 web services** (one per directory). For Node services use `npm install` as build, `node app.js` as start. For Python use `pip install -r requirements.txt` (you'll need to create one) and `python app.py`. The two React apps deploy as static sites with build command `npm run build` and publish directory `build/`.
-2. **Set `NODE_ENV=production`** on every Node service. This flips cookies to `Secure: true; SameSite: 'None'` so they work cross-origin between services on different `*.onrender.com` subdomains.
-3. **Fill in env vars** per service, using each `.env.example` as a checklist. Cross-link the URLs:
-   - `client`'s `REACT_APP_API_URL` = the gateway's URL
-   - `Users`'s `AUTH_SERVER_URL` = Auth/server's URL
-   - `APIGateway`'s `USERS_SERVICE_URL`/`AMAZON_SERVICE_URL`/`WALMART_SERVICE_URL` = each service's URL
-   - Every backend's `CORS_ORIGINS` = the storefront's URL
-4. **Set up a single MongoDB Atlas cluster**. Either:
-   - Use one DB for all services (you'll need to fix the `clients` collection name collision between Users and Auth/server), or
-   - Use separate DB names per service and point the gateway at the Users DB.
-5. **Trigger a fresh build** of the React apps after setting `REACT_APP_*` env vars — those are baked in at build time, not runtime.
-
-### Common pitfalls
-
-- **Cookies not arriving cross-origin** — confirm `credentials: 'include'` on every fetch (already done in this codebase) and `credentials: true` + a non-wildcard origin in CORS.
-- **Google OAuth redirect mismatch** — update `GOOGLE_REDIRECT_URI` in Google Cloud console to match the deployed Users service URL.
-- **OTP emails not arriving on Render** — Render's free tier blocks outbound SMTP, so the mailer uses Brevo's HTTPS API. Set `BREVO_API_KEY` and `MAIL_FROM`. The email inside `MAIL_FROM` must match an address you've verified under Brevo → Settings → Senders, otherwise Brevo returns `sender_not_valid` and the send fails.
-- **`creds` collection empty** — the gateway can't inject `productsauthorization` until an admin has completed the client-app authorization flow (§5.4) at least once per API.
+1. Sign up at `/signup`, enter the OTP, land on `/home`.
+2. Create the first admin (using curl, because no admin exists yet):
+   ```bash
+   curl -X POST http://localhost:7000/api/v1/user/admin/register \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Admin","adminId":"you@example.com","password":"AdminPass!1"}'
+   ```
+3. Log in as the admin at `/admin/login` and walk through the provider authorize flow at `/admin/auth/request`.
+4. Browse products → add to cart → checkout with the Stripe test card `4242 4242 4242 4242` → confirm the cart clears after the order completes.
 
 ---
 
-## 10. Security notes
+## 11. Testing
 
-What's protected:
-- All JWTs (user/admin/auth) live in `httpOnly` cookies — JS can't read them, mitigates XSS token theft.
-- Cookies use `SameSite: None; Secure` in production — mitigates CSRF via cross-site.
-- Passwords are bcrypt-hashed (salt rounds: 10).
-- The Authorization middleware is **cookie-first, header-fallback** — preserving the Google `ya29.*` flow.
-- Product API access tokens never reach the browser; the gateway injects them server-side.
-- **Short access tokens (15 min) + refresh-token rotation**: stolen access tokens have at most a 15-minute window of usefulness; stolen refresh tokens are invalidated as soon as the legitimate user makes any request that triggers a refresh.
+The Auth server has the most complete test suite:
 
-What still needs work before production traffic:
-- **`SECRET` vs per-credential `secret_key`**: the verification path in both Amazon and Walmart middleware uses `SECRET` (which must hold the same value as Auth's `JWT_PROVIDER_SECRET`), but `Auth/server/Controllers/ClientAuthorization.js` signs with `creds[0].secret_key`. These must agree. Either drop the env-var-based shared secret and have the product services look up the secret from MongoDB at verify time, or make `secret_key === SECRET` for every credential.
-- **No CSRF token** for state-changing cookie-authenticated requests. SameSite=None+Lax mitigates most attacks, but a double-submit cookie pattern would be a belt-and-suspenders improvement.
-- **Rate limiting** is only on `Auth/server`, not on `Users` (where the login lives). Add `express-rate-limit` to `Users/app.js` before going live.
-- **OTP** has no max-attempts counter — a 4-digit OTP is brute-forceable in seconds without one.
-- **`JWT_SECRET`** must rotate on a schedule; currently there's no rotation infrastructure.
+```powershell
+cd Auth\server
+npm test
+```
+
+It covers signup/login/me, generic error responses, refresh token rotation, `tokenVersion` invalidation, CSRF, opaque forgot-password, fail-closed introspection, OAuth state validation, body-size caps, and readiness checks.
+
+The other services currently have placeholder test scripts. The next CI investment would be tests for the Gateway (token refresh and retry), Users (auth/CSRF/cart isolation/checkout), and the provider services (Stripe verification and idempotency).
 
 ---
 
-## 11. Future enhancements (roadmap)
+## 12. Documentation map
 
-- Add a real Inventory service (decouple stock tracking from product documents) — *currently inventory is a sub-document on each product*.
-- Add a Payment service and integrate Stripe.
-- Containerize each service with Docker; add a `docker-compose.yml` for local orchestration.
-- Replace the current sync HTTP between `Users` and `Auth/server` (admin auth bridge) with a message queue.
-- Add CI (GitHub Actions) for `npm test` + ESLint per service.
-- Add observability — at minimum, request-correlation IDs propagated across the gateway.
+This README is the overview. Deeper docs live in [`docs/`](docs/):
+
+| File | What it covers |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System diagrams, sequence diagrams for every cross-service flow, service cards, shared concerns |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Assets and adversaries, STRIDE threat model, OWASP Top 10 controls, cryptography inventory, known gaps |
+| [`docs/API.md`](docs/API.md) | Every endpoint with `curl` examples, success/error responses, internal service-to-service routes |
+| [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | ER diagrams per database, collection-by-collection notes, full index list |
 
 ---
 
 ## License
 
-ISC (per existing `package.json` files).
+ISC (matches the existing `package.json` files).

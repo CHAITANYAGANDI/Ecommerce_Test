@@ -161,9 +161,8 @@ export const CLIENT_URL = process.env.REACT_APP_CLIENT_URL || 'http://localhost:
 
 // Source-branded mock storefronts. Continue on Amazon / Continue on Walmart
 // redirects here so the buyer perceives leaving TrendyTreasures and landing
-// on the seller's own checkout, like Google Flights handing off to an
-// airline. The redirect URL carries ONLY a referralCode — no PII or session
-// crosses the boundary.
+// on the seller's own checkout. The redirect URL carries ONLY a referralCode
+// — no PII or session crosses the boundary.
 export const AMAZON_CHECKOUT_URL = process.env.REACT_APP_AMAZON_CHECKOUT_URL || 'http://localhost:8000/checkout';
 export const WALMART_CHECKOUT_URL = process.env.REACT_APP_WALMART_CHECKOUT_URL || 'http://localhost:8001/checkout';
 
