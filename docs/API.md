@@ -468,6 +468,20 @@ curl -X POST https://<gateway>/api/v1/user/ai/product-qa \
   }'
 ```
 
+### Configuration & graceful disable
+
+Both endpoints live in the **Users** service and call OpenAI through a thin `fetch` wrapper (`Users/Services/AIService.js`).
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` | _(empty)_ | OpenAI API key. **If unset, both endpoints return `503` and the storefront widgets render nothing** — the feature self-disables instead of showing a broken UI. |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Chat Completions model. Swap in one env change. |
+
+Notes:
+- Calls have a **15-second timeout** (`AbortController`); a slow OpenAI response can't hang the buyer's request.
+- `price-advice` is cached in memory for **6 hours** per `(provider, productId)`, aligned with the snapshot cadence. With **fewer than 3 snapshots** it returns a fixed "not enough data" message and **skips the model call** entirely.
+- `product-qa` is **not** cached (questions vary) and length-caps the question (240 chars) and description (2000 chars) before sending.
+
 ---
 
 ## 8. Developer auth (Auth server)

@@ -188,6 +188,15 @@ This maps the 2021 OWASP Top 10 to the actual controls in the code.
 | A09 | Security Logging and Monitoring Failures | **Gap** | Request IDs are propagated across services; structured logging in Auth; raw `console.log` elsewhere. **No central log aggregation, no security event alerts.** |
 | A10 | Server-Side Request Forgery | **OK** | `assertSafeOutbound` on the Auth server validates `redirect_uri` against private IP ranges (static check + runtime DNS resolution). |
 
+### AI endpoint guardrails
+
+The two public AI endpoints (`/ai/price-advice`, `/ai/product-qa`) talk to an external LLM, so they get their own abuse-resistance measures on top of the standard rate limits:
+
+- **Grounded, anti-fabrication prompts.** The Q&A system prompt instructs the model to answer **only** from the supplied product metadata and to reply *"I don't see that detail in this product's listing"* when the answer isn't present — instead of inventing specs, dimensions, warranty, or compatibility claims. It also refuses questions unrelated to the product, so it can't be repurposed as a free general-purpose chatbot.
+- **Strict input caps** before anything reaches OpenAI: question ≤ 240 chars, description ≤ 2000 chars, features ≤ 20 items. Bounds both prompt-injection surface and token cost.
+- **Pre-computed facts, not model math.** Price advice hands the model already-computed statistics (min/max/median/percentile/trend); the model only phrases the recommendation, so it can't miscalculate the numbers.
+- **Fails closed and quiet.** No key → `503` → widgets self-hide (see API.md §7). A vendor outage degrades to "feature absent," never a broken page or leaked error detail.
+
 ---
 
 ## 5. Cryptography inventory

@@ -406,6 +406,40 @@ Two reasons we run this in the gateway, not in Users:
 
 For products that have alerts but nobody's looked at lately, there's a cron-driven `POST /internal/snapshot-tracked` that sweeps them on a schedule.
 
+### 3.7 AI price advisor & product Q&A
+
+Two small AI features live in the Users service and read the **same** `price_snapshots` the chart is built from.
+
+```mermaid
+sequenceDiagram
+    participant U as Shopper (product page)
+    participant US as Users
+    participant DB as trendytreasures DB
+    participant AI as OpenAI
+
+    U->>US: GET /ai/price-advice/:provider/:productId
+    alt cached < 6h
+        US->>U: 200 { advice, stats, cached:true }
+    else
+        US->>DB: Read last 30d of price_snapshots
+        US->>US: Compute stats in code (min/max/median/percentile/trend)
+        alt < 3 snapshots
+            US->>U: 200 fixed "not enough data" (no model call)
+        else
+            US->>AI: system + stats-as-facts (max 80 tokens)
+            AI->>US: 1–2 sentence buy/wait rec
+            US->>U: 200 { advice, stats }
+        end
+    end
+```
+
+Design choices worth knowing:
+
+1. **The math is done in code, not by the model.** `summarizeHistory()` computes min/max/median/percentile/trend and hands them to the model as *facts*. The model only phrases the buy-or-wait call — it can't get the arithmetic wrong, and the prompt stays short and cheap.
+2. **Cheap-path short circuits.** A 6h in-memory cache and a "< 3 snapshots → skip the model" rule mean most reads never hit OpenAI.
+3. **Q&A is grounded.** Product Q&A answers strictly from the supplied listing and is told to say "I don't see that detail" rather than invent one (see SECURITY.md §4 → AI endpoint guardrails).
+4. **Self-disabling.** No `OPENAI_API_KEY` → endpoints return `503` → the storefront widgets render nothing. The feature is effectively a flag flipped by the presence of the key.
+
 ---
 
 ## 4. Service cards
